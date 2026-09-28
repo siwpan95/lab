@@ -17,8 +17,8 @@
 | `CppChess/` `PyChess/` `CSharpChess/` `JavaChess/` `JsChess/` `TsChess/` `GoChess/` `RustChess/` `FSharpChess/` `VBChess/` | 10 个语言引擎（功能对等实现） |
 | `chess-cordis/` | 统一 harness：Cordis 框架 + `drivers/<lang>/` 适配器 + `src/{host,stress,timing,harness,loader,registry,fen}` + `config/cordis.yml` |
 | `tournament/` | 跨语言循环赛 runner：独立规则引擎（`engine.mjs`）+ JSON-stdio 客户端（`engine_client.mjs`）+ 引擎清单（`engines.mjs`）+ 战报生成（`run_tournament.mjs`）；由每日 03:00 的自动化任务驱动 |
-| `cordis-main/` | **上游 Cordis 框架源码，仅用于溯源/重建 `chess-cordis` 依赖**，运行时**不加载**（运行时用 npm 安装的 `@cordisjs/cordis`）。**保留此目录，不要删除**。 |
-| `paper-main/` | 论文/设计占位（空壳） |
+| `cordis-main/` | **上游 Cordis 框架源码，仅本地溯源/重建 `chess-cordis` 用**，运行时**不加载**（用 npm 装的 `@cordisjs/cordis`）。**已 gitignore、本地保留、不推送**。 |
+| `paper-main/` | 论文/设计参考（本地 gitignore，不推送） |
 | `_archive/` | 已被 `UNIFIED_ARCHITECTURE_REPORT.md` 取代的旧报告归档 |
 | `port_spec.txt` | 移植规范（单一真相来源） |
 | `perft_spec.txt` | perft 黄金值契约 |
@@ -76,15 +76,19 @@ node src/timing.js    # 10 引擎权威 timing 基准（Start / Kiwipete d4）
 
 ## 7. 版本控制与构建
 
-- 已 `git init` 并写入 `.gitignore`（排除 `bin/ obj/ target/ out/ __pycache__/ node_modules/ *.exe *.dll` 等二进制产物）。
-- **本地提交已完成**：10 个逻辑提交 + 10 个 tag，全部 **仅本地、未推送**（推送用 `D:/projects/allin/tools/gitee_release.py`）。
-  - `v0.1.0`（元信息/规范）→ `harness-v1` → `engine-ports-v1` → `tournament-v1` → `tournament-report-2026-09-28` → `tournament-parity-v1` → `chore-gitignore-v1` → `spec-clarify-v1` → `engines-enable-cpp-cs-fs-v1` → `engines-enable-java-v1`。
+- 已 `git init`，`.gitignore` 排除二进制产物与本地草稿：
+  - 二进制：`bin/ obj/ target/ out/ __pycache__/ node_modules/ *.exe *.dll *.so *.dylib`
+  - 本地研究缓存（非交付物，仅本地保留）：`_archive/` `_removed_glue_archive/` `_mingw.nupkg` `cordis-main/` `paper-main/`
+- **已推送到 Gitee**：远端 `https://gitee.com/siwpan/lab.git`（当前为**私有**仓库）。本地 **16 个提交 + 13 个 tag 全部已推送**（`git push origin master` + `git push origin --tags` 均已验证远端一致）。
+  - tag 序列：<code>v0.1.0</code> → <code>harness-v1</code> → <code>engine-ports-v1</code> → <code>license-v1</code> → <code>tournament-v1</code> → <code>tournament-report-2026-09-28</code> → <code>tournament-parity-v1</code> → <code>spec-clarify-v1</code> → <code>engines-enable-cpp-cs-fs-v1</code> → <code>infra-build-v1</code> → <code>engines-enable-java-v1</code> → <code>docs-readme-v1</code> → <code>chore-gitignore-v1</code>。
+  - 建仓与配 `origin` 用 `D:/projects/allin/tools/gitee_release.py`（`create` + `remote` 子命令）；转公开用其 `public` 子命令。
 - **二进制产物不入仓**：cpp/cs/fs/java 的 `*.exe/*.dll/out/*.class` 被 `.gitignore` 忽略，克隆后需本地重建，见 §10。
+- **本地参考克隆不入仓**：`cordis-main/`（Cordis 上游源码）、`paper-main/`（论文参考）仅本地保留、已 gitignore，用于溯源，运行时不需要。
 - **许可证**：见 `LICENSE`（MIT）。
 
 ## 8. 注意事项
 
-- **`cordis-main/` 保留**：它是 `chess-cordis` 的上游溯源地基，勿删除；仅其 `.github/` 工作流目录已剥离（第三方 CI 含 npm publish，误推送会触发）。
+- **`cordis-main/` 本地保留但已 gitignore**：它是 `chess-cordis` 的上游溯源地基，**仅本地存在、不推送**（已加入 `.gitignore`），勿删除；其 `.github/` 工作流目录已剥离（第三方 CI 含 npm publish，误推送会触发）。
 - 根目录旧报告（`CROSS_VALIDATION_REPORT.md` 等）已归档至 `_archive/`，以 `UNIFIED_ARCHITECTURE_REPORT.md` 为唯一权威。
 - `chess-cordis/config/cordis.yml` 与 `tournament/engines.mjs` 均含本机绝对路径（如 `D:/dotnet8`、`D:/jdk21`、`D:/projects/lab/...`）。换机/换用户须改为相对路径或环境变量；原文档中 `F:/mingw64`、`F:/dotnet` 等 F 盘引用已失效（本机已无 F 盘）。
 

@@ -20,3 +20,6 @@ venv/
 *.user
 Thumbs.db
 .DS_Store
+
+# ---- WorkBuddy session data ----
+.workbuddy/

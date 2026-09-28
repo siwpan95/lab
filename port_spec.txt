@@ -1,10 +1,10 @@
 ================================================================================
 多语言国际象棋引擎 — 移植规范 (CANONICAL SPEC)
 ================================================================================
-本规范是 E:\lab 下所有语言版本（Python / C# / TypeScript / JavaScript /
-Java / Rust / Go）必须严格对齐的"单一真相来源"。
+本规范是 D:/projects/lab 下所有语言版本（C# / C++ / F# / Go / Java /
+JavaScript / Python / Rust / TypeScript / VB）必须严格对齐的"单一真相来源"。
 
-权威实现：E:\lab\CppChess\ 下的 chess_core.h/.cpp、chess_ai.h/.cpp、
+权威实现：D:/projects/lab/CppChess\ 下的 chess_core.h/.cpp、chess_ai.h/.cpp、
 tests.cpp、main.cpp。本规范是其提炼；若本规范与 C++ 源码冲突，以 C++ 源码为准。
 
 目标：每个语言版本都是功能对等的国际象棋引擎，支持：
@@ -317,5 +317,80 @@ positionKeys 含 1 项）。测试组：
 - 不要运行、不要编译、不要执行任何测试或 benchmark（用户要求暂不验证）。
 - 各语言输出目录与文件见各 agent 任务说明；README/用法注释写进 main 文件头部即可。
 - 保持与 C++ 完全一致的逻辑、常量和边界处理；PST 与 PieceValue 必须逐字一致。
-- 升变默认选后（play 交互与 FindBestMove 无关，仅 play 用）。
+  - 升变默认选后（play 交互与 FindBestMove 无关，仅 play 用）。
+
+--------------------------------------------------------------------------------
+7. 跨语言驱动协议（JSON over stdio）—— 消除"引擎如何被外部驱动"的歧义
+--------------------------------------------------------------------------------
+§1–§3 定义的是引擎**内部**的规则库与 AI；§4 定义的是引擎**独立运行**的控制台 CLI。
+但本仓库的 cross-language tournament（tournament/run_tournament.mjs）与 chess-cordis
+harness 并不直接调用 CLI，而是以"子进程 + 逐行 JSON"方式驱动每个引擎。该协议此前
+未写入规范，是移植/对弈一致性最大的歧义源。现固化如下（chess-cordis/drivers/* 与
+tournament/js_driver.mjs 已对齐）：
+
+启动：
+  - 引擎进程启动后，必须向 stdout 打印第一行：{"ready":true}（UTF-8，单行）。
+  - 若引擎未在宽限时间内打印 ready，harness 仍会继续（不强制依赖该字段）。
+
+请求（harness → 引擎，stdin，逐行 JSON）：
+  {"id":"<字符串>","cmd":"<命令>","fen":"<标准 FEN>","depth":<整数>}
+  - id：每请求唯一字符串，原样回填到响应，用于请求/响应配对。
+  - cmd：取值 "bestMove"（tournament 仅用此）；部分驱动另支持 "perft"/"legalMoves"
+        （仅供 harness 自检，不影响对弈）。
+  - fen：标准 6 字段 FEN（placement/side/castling/ep/halfmove/fullmove 空格分隔）。
+        引擎须能解析 FEN 重建 GameState（§1 字段）。
+  - depth：搜索深度，等同 §3 FindBestMove 的 depth 参数。
+
+响应（引擎 → harness，stdout，逐行 JSON）：
+  - 成功：{"id":"<同请求>","ok":true,"move":"<UCI 或 null>","score":0}
+      · move：UCI 字符串，如 "e2e4"；升变后缀用小写字母，如 "e7e8q"（见 §8.1）。
+      · move 为 null 当且仅当 GenerateAllLegalMoves(state) 为空（轮到走棋方被将死或
+        无任何合法走法）。见 §8.3。
+      · score：保留字段，当前所有驱动固定返回 0（真实评分非必需）。
+  - 失败：{"id":"<同请求>","ok":false,"error":"<字符串>"}
+
+编码与时序：
+  - UTF-8；每条消息占一行（以 \n 结尾），不可 pretty-print、不可跨行。
+  - harness 维护权威棋盘并负责：应用 move、校验 move 是否为本引擎的合法走法、判定
+    将死/逼和/和棋。引擎驱动层**只实现"给 FEN → 返回 bestMove"**，不向 harness 暴露
+    applyMove/isCheck。§3 中 applyMove 的责任归属见 §8.4。
+
+--------------------------------------------------------------------------------
+8. 已知一致性边界 / 歧义消除清单
+--------------------------------------------------------------------------------
+§8.1 升变字母大小写（消除"UCI 到底大写还是小写"的歧义）
+  - 内部 Move.toString()（§1，控制台 SAN）升变用大写：=Q。
+  - JSON-stdio 的 move 字段升变后缀用小写：e7e8q（所有驱动一致 tolower）。
+  - 外部裁决（如 tournament/engine.mjs applyUci）两种大小写都接受；但引擎对外只输出小写。
+
+§8.2 多个同分着法的平局裁决（消除"为何不同引擎步序列雷同、又为何有偏离"的歧义）
+  - §3 FindBestMove 在根节点取"第一个达到最高 negamax 分"的着法，规范**未规定同分
+    着法之间的 tie-break**。因此被选着法取决于各语言着法生成顺序与排序稳定性
+    （OrderMoves 仅按 MoveOrderScore 降序；等分时次序未定义）。
+  - 结论（一致性边界，非缺陷）：
+      · 确定性引擎在相同局面/深度下，若着法生成顺序一致，会输出逐字节相同的着法——
+        战报中出现"步序列雷同"属预期，不代表实现错误。
+      · 若两引擎在某局面"最优着法集合"相同却各自选了集合内不同成员（取决 tie-break），
+        该偏离**不构成移植缺陷**，只说明 tie-break 不同。要判定是否真错，须用
+        tournament/reference_search.mjs 计算全窗口根分，确认差值是并列最优（TIE）还是
+        严格劣着（MISTAKE）。见 tournament/engine_parity_audit.mjs。
+
+§8.3 无合法走法时的语义
+  - move:null 仅表示"轮到走棋方无合法走法"。harness 据此结合 isCheck 判定将死或逼和；
+    引擎本身不区分二者，也不应返回除 null 外的占位值。
+
+§8.4 applyMove / 合法性校验的责任归属
+  - §3 的 ApplyMove、IsInCheck、IsCheckmate 等是**引擎内部**规则库函数，用于引擎自身
+    搜索与自测。外部 harness/tournament 不依赖引擎暴露这些函数：它用自己独立的规则引擎
+    （如 tournament/engine.mjs，perft 黄金值自检通过）重建棋盘、应用走法并校验合法性，
+    从而**额外捕获引擎移植缺陷**（若某引擎返回非法 UCI，外部裁决判其该局负）。
+
+§8.5 GetPositionKey 的过路兵编码（与严格 FEN 的差异，须知晓）
+  - 按 §1，positionKeys/GetPositionKey 仅在 HasLegalEnPassant 为真时编码 ep 格，否则为
+    "-1,-1"。这是本规范的刻意选择（与严格 FEN 始终编码双步兵 ep 目标略有差异），旨在
+    避免"不可吃过路兵却改变局面键"的伪重复；三次重复判和据此进行。
+
+§8.6 控制台 CLI 与驱动协议是两条独立入口
+  - §4 的 test/selfplay/bench/play 是引擎独立运行入口；§7 的 JSON-stdio 是外部 harness
+    驱动入口。两者共享 §1–§3 的引擎核心，但互不调用、互不依赖。
 ================================================================================

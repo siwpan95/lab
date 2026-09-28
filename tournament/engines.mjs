@@ -27,6 +27,7 @@
 // automation overrides it to 4).
 // `timeout` is the per-move RPC ceiling; python is slow → generous one.
 
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { START_FEN } from './engine_client.mjs';
@@ -44,18 +45,62 @@ export const GAMES_PER_PAIR = 2;   // swap colors
 //   · 外部工具链 → 优先环境变量，其次 PATH 上的同名可执行文件；
 //   · node → 直接用**正在跑本脚本的那个** node（`process.execPath`），零配置。
 //
-// 需要覆盖时（例如工具链装在非 PATH 位置）：
-//   LAB_NODE / LAB_PYTHON / LAB_DOTNET / LAB_JAVA
+// 需要覆盖时（例如工具链装在非 PATH 位置），两种等价方式：
+//   ① 环境变量：LAB_NODE / LAB_PYTHON / LAB_DOTNET / LAB_JAVA
+//   ② 仓内文件：tournament/local.env（不入库，模板见 local.env.example）
+//      —— 推荐给无人值守的定时任务用：进程 env 是启动快照，local.env 每次运行都读。
 // ---------------------------------------------------------------------------
 const HERE = dirname(fileURLToPath(import.meta.url)); // <repo>/tournament
 const ROOT = dirname(HERE);                            // <repo>
 /** 仓内路径：repo('chess-cordis', 'drivers', ...) */
 const repo = (...p) => join(ROOT, ...p);
 
-const NODE = process.env.LAB_NODE || process.execPath;
-const PY = process.env.LAB_PYTHON || 'python';
-const DOTNET = process.env.LAB_DOTNET || 'dotnet';
-const JAVA = process.env.LAB_JAVA || 'java';
+// ---------------------------------------------------------------------------
+// 本机工具链覆盖：tournament/local.env（2026-09-28 新增，**不入库**）
+//
+// 为什么需要它：进程的环境变量是**启动时的快照**。实测（2026-09-28 22:19）——
+// 用 setx 写好的用户级 LAB_DOTNET / LAB_JAVA，在 setx 之前启动的进程树里根本读不到
+// （父链根进程 22:09:14 启动 < setx 22:14）。每日自动化正是由那棵进程树派生的，
+// 于是凌晨那轮拿不到 .NET 8 / JDK 21，只剩 7 个引擎。
+//
+// 为什么不直接把路径写进 engines.mjs 或自动化命令：机器专属路径一旦进入任何会被
+// 推送/分发的文本，就变成"每次分发都要改一遍"。⇒ 机器相关的一律留在本地。
+//
+// 文件格式：每行 KEY=VALUE，# 开头为注释，允许 export 前缀与引号。见 local.env.example。
+// 优先级：**进程环境变量 > local.env > 默认值（PATH 上的同名可执行文件）**
+//   —— 与常见 dotenv 语义一致：文件只做兜底，进程里显式指定的永远优先。
+// ---------------------------------------------------------------------------
+const LOCAL_ENV_FILE = join(HERE, 'local.env');
+
+function loadLocalEnv(file) {
+  try {
+    if (!existsSync(file)) return {};
+    const out = {};
+    for (const raw of readFileSync(file, 'utf8').split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq < 0) continue;
+      const key = line.slice(0, eq).trim().replace(/^export\s+/i, '');
+      let val = line.slice(eq + 1).trim();
+      const quoted = (val.startsWith('"') && val.endsWith('"')) ||
+                     (val.startsWith("'") && val.endsWith("'"));
+      if (quoted && val.length >= 2) val = val.slice(1, -1);
+      if (key) out[key] = val;
+    }
+    return out;
+  } catch {
+    return {}; // 读不到就当没有：绝不因为配置文件缺失而让整个赛程起不来
+  }
+}
+
+const LOCAL_ENV = loadLocalEnv(LOCAL_ENV_FILE);
+const envOr = (key, fallback) => process.env[key] || LOCAL_ENV[key] || fallback;
+
+const NODE = envOr('LAB_NODE', process.execPath);
+const PY = envOr('LAB_PYTHON', 'python');
+const DOTNET = envOr('LAB_DOTNET', 'dotnet');
+const JAVA = envOr('LAB_JAVA', 'java');
 
 export const ENGINES = [
   {
@@ -119,4 +164,5 @@ export const ENGINES = [
   },
 ];
 
-export { START_FEN };
+// 可观测性：外部（probe.mjs / 排查脚本）能确认 local.env 到底有没有被读到、读到哪些键。
+export { START_FEN, LOCAL_ENV_FILE, LOCAL_ENV };

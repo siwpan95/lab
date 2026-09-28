@@ -35,6 +35,14 @@ Thumbs.db
 tournament/reports/*.md
 !tournament/reports/README.md
 
+# ---- 本机工具链覆盖（含机器绝对路径，绝不入库）----
+# 2026-09-28：engines.mjs 会读 tournament/local.env 来定位 dotnet / java / node / python
+#   （解决的问题：PATH 上的 dotnet 是 6.0.8、机器上没有 java，而 .NET 8 / JDK 21 装在
+#    D:\dotnet8 与 D:\jdk21 —— 这些路径是**本机专属**的）。
+# 原则：机器相关的路径一律留在本地，不进远端 —— 否则每次分发都要改一遍。
+# ⇒ 忽略真实的 local.env；入库的模板是 tournament/local.env.example（占位路径 + 说明）。
+tournament/local.env
+
 # ---- local scratch / research artifacts (not part of the deliverable) ----
 _archive/
 _removed_glue_archive/

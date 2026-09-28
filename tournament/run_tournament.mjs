@@ -194,7 +194,9 @@ function writeReport({ date, env, participants, disabled, pairs, games, scores, 
   lines.push(`| --- | --- |`);
   lines.push(`| Node | ${env.node} |`);
   lines.push(`| Python | ${env.python} |`);
-  lines.push(`| 工作目录 | ${env.cwd} |`);
+  // 2026-09-28：`工作目录` 原先直接打 process.cwd()，于是报告里出现机器绝对路径。
+  // 改为把**仓根**替换成 `<repo>`；这不是手工记录，是自动化每次生成报告的产物。
+  lines.push(`| 工作目录 | ${String(env.cwd).replace(dirname(__dirname), '<repo>')} |`);
   lines.push(`| 操作系统 | ${env.platform} |`);
   lines.push(`| 规则引擎 | tournament/engine.mjs（perft 黄金值自检通过） |`);
   lines.push('');

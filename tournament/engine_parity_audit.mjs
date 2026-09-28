@@ -155,9 +155,14 @@ function collectSortEvidence(ids) {
       let hitIdx = lines.findIndex((l) => isCall(l) && !isImport(l));
       if (hitIdx < 0) hitIdx = lines.findIndex((l) => /\bsort|orderby/i.test(l) && !isImport(l));
       if (hitIdx >= 0) {
-        evidence = `${file.replace(`${__dirname}\\`, '').replace(`${__dirname}/`, '')}:${hitIdx + 1}  \`${lines[hitIdx].trim()}\``;
+        // 2026-09-28 修：原先剥的是 `__dirname`（= `<repo>/tournament`），
+        // 而被引用的引擎源码在**仓根**下（`<repo>/GoChess/...`），前缀对不上 ⇒ 替换不生效，
+        // 报告里打出的是**绝对路径**（实证：历史报告里 `D:\projects\lab\GoChess\chess_ai.go:168`）。
+        // 改为剥**仓根**（`__dirname` 的上一级）⇒ 报告里显示仓内相对路径，换机/换盘都对。
+        const repoRoot = dirname(__dirname);
+        evidence = `${file.replace(`${repoRoot}\\`, '').replace(`${repoRoot}/`, '')}:${hitIdx + 1}  \`${lines[hitIdx].trim()}\``;
       } else {
-        evidence = `${file} — 未找到 sort 调用行`;
+        evidence = `${file.replace(`${dirname(__dirname)}\\`, '').replace(`${dirname(__dirname)}/`, '')} — 未找到 sort 调用行`;
       }
     }
     out.push({

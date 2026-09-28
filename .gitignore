@@ -24,6 +24,17 @@ Thumbs.db
 # ---- WorkBuddy session data ----
 .workbuddy/
 
+# ---- tournament reports: 自动化产物，不再逐次入库 ----
+# 2026-09-28：用户指出 tournament/ 属 WorkBuddy 自动化相关内容。
+# 实证：run_tournament.mjs 写 reports/YYYY-MM-DD.md、engine_parity_audit.mjs 写
+#       reports/parity-YYYY-MM-DD.md —— 都是**每次运行就重生成**的产物（报告头自带"生成时间/生成工具"），
+#       性质同 localplayer 的 media/manifest.json 与 DSH 的 dsh-web-diagnose-*.log。
+# ⇒ 忽略**新生成的**日期报告，避免每次跑自动化都把工作树弄脏。
+# 已入库的两份 2026-09-28 样例保持跟踪（它们是**有意提交的样例**，提交信息写明 "sample battle report"）；
+# 如需一并撤出跟踪，另行决定。
+tournament/reports/*.md
+!tournament/reports/README.md
+
 # ---- local scratch / research artifacts (not part of the deliverable) ----
 _archive/
 _removed_glue_archive/

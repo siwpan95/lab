@@ -11,7 +11,8 @@
 //   go, rust, vb, ts, js, py  — original 6 (no extra runtime needed)
 //   cpp, cs, fs              — enabled 2026-09-28 after .NET 8 runtime install
 //                                (D:/dotnet8) + cpp JSON-stdio driver verified
-//   java                     — being enabled 2026-09-28 after JDK 21 install
+//   java                     — enabled 2026-09-28 after JDK 21 install
+//                                (D:/jdk21); JavaChess core compiled to out/
 //
 // Previously disabled (now resolved):
 //   cpp  — was "excluded by user decision"; the JSON-stdio driver
@@ -85,10 +86,13 @@ export const ENGINES = [
     args: ['D:/projects/lab/chess-cordis/drivers/fsharp/bin/Release/net8.0/FSharpChessDriver.dll'],
     timeout: 60000,
   },
-  // ---- Java : JDK 21 installing at D:/jdk21; enable after java.exe path confirmed ----
+  // ---- Java : JDK 21 at D:/jdk21; JavaChess core (ChessCore/ChessAI) compiled
+  //          to chess-cordis/drivers/java/out; JSON-stdio driver verified. ----
   {
-    id: 'java', language: 'Java', enabled: false,
-    disabledReason: 'JDK 21 installing at D:/jdk21; out/Driver.class must be compiled',
+    id: 'java', language: 'Java', enabled: true,
+    cmd: 'D:/jdk21/jdk-21.0.12.1+1/bin/java.exe',
+    args: ['-cp', 'D:/projects/lab/chess-cordis/drivers/java/out', 'Driver'],
+    timeout: 60000,
   },
 ];
 

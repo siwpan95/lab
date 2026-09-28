@@ -23,3 +23,10 @@ Thumbs.db
 
 # ---- WorkBuddy session data ----
 .workbuddy/
+
+# ---- local scratch / research artifacts (not part of the deliverable) ----
+_archive/
+_removed_glue_archive/
+_mingw.nupkg
+cordis-main/
+paper-main/

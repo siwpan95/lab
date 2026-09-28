@@ -7,15 +7,20 @@
 // answer join the bracket. Engines marked `disabled` are skipped outright and
 // noted in the report (no fake results, no wasted startup time).
 //
-// Participating (enabled, expected to run on this machine):
-//   go, rust, vb, ts, py, js
-// Disabled (with reason):
-//   cpp  — excluded by user decision (its .exe is present but parked)
-//   cs   — needs .NET 8 runtime; only Microsoft.NETCore.App 6.0.8 is installed
-//   fs   — needs .NET 8 runtime; only 6.0.8 is installed
-//   java — no java.exe runtime on this machine
+// Participating (enabled, verified to run on this machine):
+//   go, rust, vb, ts, js, py  — original 6 (no extra runtime needed)
+//   cpp, cs, fs              — enabled 2026-09-28 after .NET 8 runtime install
+//                                (D:/dotnet8) + cpp JSON-stdio driver verified
+//   java                     — being enabled 2026-09-28 after JDK 21 install
 //
-// `depth` is the per-move search depth (user-selected strength = 3).
+// Previously disabled (now resolved):
+//   cpp  — was "excluded by user decision"; the JSON-stdio driver
+//          (chess-cordis/drivers/cpp/cppchess_driver.exe) is prebuilt & verified.
+//   cs/fs — needed .NET 8 runtime; only Microsoft.NETCore.App 6.0.8 was present.
+//   java — no java.exe runtime on this machine.
+//
+// `depth` is the per-move search depth (user-selected strength = 3; the daily
+// automation overrides it to 4).
 // `timeout` is the per-move RPC ceiling; python is slow → generous one.
 
 import { START_FEN } from './engine_client.mjs';
@@ -61,22 +66,29 @@ export const ENGINES = [
     args: ['D:/projects/lab/chess-cordis/drivers/py_engine_driver.py'],
     timeout: 180000, // python is the slowest by a wide margin
   },
-  // ---- disabled on this machine ----
+  // ---- C++ : JSON-stdio driver prebuilt & verified (chess-cordis/drivers/cpp/) ----
   {
-    id: 'cpp', language: 'C++', enabled: false,
-    disabledReason: 'excluded by user decision (its .exe is present but parked)',
+    id: 'cpp', language: 'C++', enabled: true,
+    cmd: 'D:/projects/lab/chess-cordis/drivers/cpp/cppchess_driver.exe',
+    args: [], timeout: 60000,
+  },
+  // ---- C# / F# : need .NET 8 runtime (installed at D:/dotnet8) ----
+  {
+    id: 'cs', language: 'C#', enabled: true,
+    cmd: 'D:/dotnet8/dotnet.exe',
+    args: ['D:/projects/lab/chess-cordis/drivers/csharp/bin/Release/net8.0/ChessEngineDriver.dll'],
+    timeout: 60000,
   },
   {
-    id: 'cs', language: 'C#', enabled: false,
-    disabledReason: 'needs .NET 8 runtime; only Microsoft.NETCore.App 6.0.8 installed here',
+    id: 'fs', language: 'F#', enabled: true,
+    cmd: 'D:/dotnet8/dotnet.exe',
+    args: ['D:/projects/lab/chess-cordis/drivers/fsharp/bin/Release/net8.0/FSharpChessDriver.dll'],
+    timeout: 60000,
   },
-  {
-    id: 'fs', language: 'F#', enabled: false,
-    disabledReason: 'needs .NET 8 runtime; only Microsoft.NETCore.App 6.0.8 installed here',
-  },
+  // ---- Java : JDK 21 installing at D:/jdk21; enable after java.exe path confirmed ----
   {
     id: 'java', language: 'Java', enabled: false,
-    disabledReason: 'no java.exe runtime on this machine',
+    disabledReason: 'JDK 21 installing at D:/jdk21; out/Driver.class must be compiled',
   },
 ];
 

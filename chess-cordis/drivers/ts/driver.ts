@@ -6,7 +6,7 @@
 // engine; the engine itself stays zero-dependency and cordis-unaware.
 //
 // NOTE on layout: this driver imports the engine core via a relative path that,
-// after tsc emits to drivers/ts/out with rootDir=E:/lab, resolves INSIDE out/
+// after tsc emits to drivers/ts/out with rootDir=., resolves INSIDE out/
 // (so the compiled engine core ships next to the driver). See tsconfig.json.
 // =============================================================================
 

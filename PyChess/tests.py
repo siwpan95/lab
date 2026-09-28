@@ -1,7 +1,7 @@
 # =============================================================================
 # tests.py — 核心规则自测（Python 3.13+）
 # -----------------------------------------------------------------------------
-# 与 E:\lab\CppChess\tests.cpp 完全对等的移植（24 组 / 97 项断言）。
+# 与 CppChess\tests.cpp 完全对等的移植（24 组 / 97 项断言）。
 # 覆盖：初始走法数 / 过路兵 / 王车易位 / 升变 / 将死（学者杀、愚兄杀）/
 #       逼和 / 子力不足 / 50 步计数 / IsAttacked 基础语义 / 钉死 / 逃将 /
 #       EP 揭开将军 / 子力不足扩展 / 深度3计时 / 角格车被吃撤销易位权 /
@@ -562,19 +562,19 @@ def test_perft() -> None:
     p1 = setup_position(
         ["rnbqkbnr", "pppppppp", "........", "........",
          "........", "........", "PPPPPPPP", "RNBQKBNR"], "KQkq")
-    check("perft Pos1 d1 = 20", perft(p1, 1) == 20)
-    check("perft Pos1 d2 = 400", perft(p1, 2) == 400)
-    check("perft Pos1 d3 = 8902", perft(p1, 3) == 8902)
-    check("perft Pos1 d4 = 197281", perft(p1, 4) == 197281)
+    check("Perft Start d1 = 20", perft(p1, 1) == 20)
+    check("Perft Start d2 = 400", perft(p1, 2) == 400)
+    check("Perft Start d3 = 8902", perft(p1, 3) == 8902)
+    check("Perft Start d4 = 197281", perft(p1, 4) == 197281)
 
     # Pos2 Kiwipete
     p2 = setup_position(
         ["r3k2r", "p1ppqpb1", "bn2pnp1", "3PN3",
          "1p2P3", "2N2Q1p", "PPPBBPPP", "R3K2R"], "KQkq")
-    check("perft Pos2 d1 = 48", perft(p2, 1) == 48)
-    check("perft Pos2 d2 = 2039", perft(p2, 2) == 2039)
-    check("perft Pos2 d3 = 97862", perft(p2, 3) == 97862)
-    # check("perft Pos2 d4 = 4085603", perft(p2, 4) == 4085603)  # >2M 节点，CPython 过慢，仅作参考
+    check("Perft Kiwipete d1 = 48", perft(p2, 1) == 48)
+    check("Perft Kiwipete d2 = 2039", perft(p2, 2) == 2039)
+    check("Perft Kiwipete d3 = 97862", perft(p2, 3) == 97862)
+    # check("Perft Kiwipete d4 = 4085603", perft(p2, 4) == 4085603)  # >2M 节点，CPython 过慢，仅作参考
 
     # Pos3 Wiki3  (注意：规范 Position 3 的 rank2 为 "4P1P1"；
     # 用户所给 "PPP3PP" 会得到 16/204/3320/45627，与本黄金值不符，
@@ -582,19 +582,19 @@ def test_perft() -> None:
     p3 = setup_position(
         ["8", "2p5", "3p4", "KP5r",
          "1R3p1k", "8", "4P1P1", "8"], "")
-    check("perft Pos3 d1 = 14", perft(p3, 1) == 14)
-    check("perft Pos3 d2 = 191", perft(p3, 2) == 191)
-    check("perft Pos3 d3 = 2812", perft(p3, 3) == 2812)
-    check("perft Pos3 d4 = 43238", perft(p3, 4) == 43238)
+    check("Perft Pos3 d1 = 14", perft(p3, 1) == 14)
+    check("Perft Pos3 d2 = 191", perft(p3, 2) == 191)
+    check("Perft Pos3 d3 = 2812", perft(p3, 3) == 2812)
+    check("Perft Pos3 d4 = 43238", perft(p3, 4) == 43238)
 
     # Pos4 Wiki5
     p4 = setup_position(
         ["rnbq1k1r", "pp1Pbppp", "2p5", "8",
          "2B5", "8", "PPP1NnPP", "RNBQK2R"], "KQ")
-    check("perft Pos4 d1 = 44", perft(p4, 1) == 44)
-    check("perft Pos4 d2 = 1486", perft(p4, 2) == 1486)
-    check("perft Pos4 d3 = 62379", perft(p4, 3) == 62379)
-    # check("perft Pos4 d4 = 2103487", perft(p4, 4) == 2103487)  # >2M 节点，CPython 过慢，仅作参考
+    check("Perft Pos5 d1 = 44", perft(p4, 1) == 44)
+    check("Perft Pos5 d2 = 1486", perft(p4, 2) == 1486)
+    check("Perft Pos5 d3 = 62379", perft(p4, 3) == 62379)
+    # check("Perft Pos5 d4 = 2103487", perft(p4, 4) == 2103487)  # >2M 节点，CPython 过慢，仅作参考
 
 
 def run_tests() -> int:

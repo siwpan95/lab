@@ -6,7 +6,7 @@
 ## 目录结构
 
 ```
-E:\lab\VBChess\
+VBChess\
 ├── ChessCore.vb    规则引擎（棋盘/走法/终局判定，无 UI 依赖，可独立测试）
 ├── ChessAI.vb      AI 引擎（negamax + alpha-beta + PST 评估 + 静态搜索）
 ├── ChessUI.vb      图形界面（Windows Forms + GDI+，双人/人机模式）
@@ -20,7 +20,7 @@ E:\lab\VBChess\
 
 ## 构建
 
-双击 `build.bat`，或在命令行执行 `cd /d E:\lab\VBChess && build.bat`。
+双击 `build.bat`，或在命令行执行 `cd /d VBChess && build.bat`。
 脚本自动完成：编译 GUI → 编译测试 → 运行 97 项自测 → 全绿输出 BUILD COMPLETE。
 
 ## 玩法

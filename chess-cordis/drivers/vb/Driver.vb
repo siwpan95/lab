@@ -9,7 +9,7 @@
 '   vbc -nologo -codepage:65001 -optimize -r:System.dll -main:Driver ^
 '        -out:drivers/vb/VBChessDriver.exe ^
 '        VBChess\ChessCore.vb VBChess\ChessAI.vb drivers\vb\Driver.vb
-'   （路径均为**仓内相对**；原先这里写的是已不存在的 E:\lab\... 绝对路径）
+'   （路径均为**仓内相对**；原先这里写的是已不存在的 ... 绝对路径）
 ' =============================================================================
 
 Option Explicit On

@@ -541,10 +541,10 @@ void TestPerft() {
             "rnbqkbnr","pppppppp","........","........",
             "........","........","PPPPPPPP","RNBQKBNR"};
         GameState s = BuildPosition(ranks, true, "KQkq");
-        Check("Perft Start d1 == 20",     perft(s, 1) == 20);
-        Check("Perft Start d2 == 400",    perft(s, 2) == 400);
-        Check("Perft Start d3 == 8902",   perft(s, 3) == 8902);
-        Check("Perft Start d4 == 197281", perft(s, 4) == 197281);
+        Check("Perft Start d1 = 20",     perft(s, 1) == 20);
+        Check("Perft Start d2 = 400",    perft(s, 2) == 400);
+        Check("Perft Start d3 = 8902",   perft(s, 3) == 8902);
+        Check("Perft Start d4 = 197281", perft(s, 4) == 197281);
     }
     // Pos2 Kiwipete
     {
@@ -552,9 +552,9 @@ void TestPerft() {
             "r3k2r","p1ppqpb1","bn2pnp1","3PN3",
             "1p2P3","2N2Q1p","PPPBBPPP","R3K2R"};
         GameState s = BuildPosition(ranks, true, "KQkq");
-        Check("Perft Kiwipete d1 == 48",   perft(s, 1) == 48);
-        Check("Perft Kiwipete d2 == 2039", perft(s, 2) == 2039);
-        Check("Perft Kiwipete d3 == 97862",perft(s, 3) == 97862);
+        Check("Perft Kiwipete d1 = 48",   perft(s, 1) == 48);
+        Check("Perft Kiwipete d2 = 2039", perft(s, 2) == 2039);
+        Check("Perft Kiwipete d3 = 97862",perft(s, 3) == 97862);
         // d4 == 4085603 （>2M 节点，较慢，作为参考不自动运行）
     }
     // Pos3 Wiki3  (canonical perft position 3: 8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1)
@@ -563,10 +563,10 @@ void TestPerft() {
             "8","2p5","3p4","KP5r",
             "1R3p1k","8","4P1P1","8"};
         GameState s = BuildPosition(ranks, true, "");
-        Check("Perft Wiki3 d1 == 14",    perft(s, 1) == 14);
-        Check("Perft Wiki3 d2 == 191",   perft(s, 2) == 191);
-        Check("Perft Wiki3 d3 == 2812",  perft(s, 3) == 2812);
-        Check("Perft Wiki3 d4 == 43238", perft(s, 4) == 43238);
+        Check("Perft Pos3 d1 = 14",    perft(s, 1) == 14);
+        Check("Perft Pos3 d2 = 191",   perft(s, 2) == 191);
+        Check("Perft Pos3 d3 = 2812",  perft(s, 3) == 2812);
+        Check("Perft Pos3 d4 = 43238", perft(s, 4) == 43238);
     }
     // Pos4 Wiki5
     {
@@ -574,9 +574,9 @@ void TestPerft() {
             "rnbq1k1r","pp1Pbppp","2p5","8",
             "2B5","8","PPP1NnPP","RNBQK2R"};
         GameState s = BuildPosition(ranks, true, "KQ");
-        Check("Perft Wiki5 d1 == 44",   perft(s, 1) == 44);
-        Check("Perft Wiki5 d2 == 1486", perft(s, 2) == 1486);
-        Check("Perft Wiki5 d3 == 62379",perft(s, 3) == 62379);
+        Check("Perft Pos5 d1 = 44",   perft(s, 1) == 44);
+        Check("Perft Pos5 d2 = 1486", perft(s, 2) == 1486);
+        Check("Perft Pos5 d3 = 62379",perft(s, 3) == 62379);
         // d4 == 2103487 （>2M 节点，较慢，作为参考不自动运行）
     }
 }

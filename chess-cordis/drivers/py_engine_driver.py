@@ -5,7 +5,7 @@ import os
 import sys
 import json
 
-# 去本地化（2026-09-28）：原先写死 sys.path.insert(0, "D:/projects/lab/PyChess")，
+# 去本地化（2026-09-28）：原先写死 sys.path.insert(0, "PyChess")，
 # 那个目录实测不存在。改为由本文件位置推导仓根：
 #   chess-cordis/drivers/py_engine_driver.py → 上溯三级 = 仓根 → <仓根>/PyChess
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

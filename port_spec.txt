@@ -1,10 +1,10 @@
 ================================================================================
 多语言国际象棋引擎 — 移植规范 (CANONICAL SPEC)
 ================================================================================
-本规范是 D:/projects/lab 下所有语言版本（C# / C++ / F# / Go / Java /
+本规范是 . 下所有语言版本（C# / C++ / F# / Go / Java /
 JavaScript / Python / Rust / TypeScript / VB）必须严格对齐的"单一真相来源"。
 
-权威实现：D:/projects/lab/CppChess\ 下的 chess_core.h/.cpp、chess_ai.h/.cpp、
+权威实现：CppChess\ 下的 chess_core.h/.cpp、chess_ai.h/.cpp、
 tests.cpp、main.cpp。本规范是其提炼；若本规范与 C++ 源码冲突，以 C++ 源码为准。
 
 目标：每个语言版本都是功能对等的国际象棋引擎，支持：

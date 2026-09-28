@@ -7,7 +7,7 @@
 //   loader 的声明式依赖图负责，时间维（热插拔）由每个插件登记的 ctx.effect 回滚负责。
 //
 // 依赖方向（唯一正确方向）：
-//   chess-cordis/ports/*  (harness 层适配器)  ──import/spawn──▶  E:/lab/*Chess (独立引擎)
+//   chess-cordis/ports/*  (harness 层适配器)  ──import/spawn──▶  *Chess (独立引擎)
 //   harness/loader/host  ──consume──▶  cordis-main (框架正本，不再 vendored)
 
 export class ChessRegistry {

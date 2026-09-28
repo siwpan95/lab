@@ -1,4 +1,4 @@
-# D:/projects/lab — 多语言国际象棋引擎移植实验场
+# . — 多语言国际象棋引擎移植实验场
 
 > 10 种编程语言的功能对等国际象棋引擎 + 基于 [Cordis](https://cordis.js.org/) 的统一测试 harness（`chess-cordis`）。
 > 权威架构与设计见 `chess-cordis/UNIFIED_ARCHITECTURE_REPORT.md`；依赖与运行环境见 `REQUIREMENTS.md`。
@@ -7,7 +7,7 @@
 
 本仓库是一个**移植正确性研究实验场**：同一套国际象棋规则引擎 + negamax/quiescence 搜索，用 10 种语言各自独立实现为功能对等版本，再由 `chess-cordis` 把它们作为子进程统一驱动，做跨语言 perft 黄金值一致性验证与 bestMove 共识比对。
 
-- 每个语言引擎：规则引擎 + AI 搜索 + 97 项自测（含 perft 黄金断言），**零第三方依赖，仅用标准库**。
+- 每个语言引擎：规则引擎 + AI 搜索 + **97 项核心自测**（8 种语言逐字一致）+ **perft 黄金断言**（`perft_spec.txt`），**零第三方依赖，仅用标准库**。
 - `chess-cordis`：基于 Cordis 插件框架的统一 harness，通过 **JSON-stdio** 协议与各引擎子进程通信（**无网络监听面**）。
 
 ## 2. 仓库结构
@@ -57,12 +57,12 @@ node src/timing.js    # 10 引擎权威 timing 基准（Start / Kiwipete d4）
 - **已修复项**：C++ driver FEN 越界写（CWE-787）已加边界守卫；F# `evaluate()` 已补 6 张 PST。
 - 详见 `chess-cordis/UNIFIED_ARCHITECTURE_REPORT.md` §9.6。
 
-## 6. 各语言引擎单独跑 97 项自测
+## 6. 各语言引擎单独跑自测（97 项核心 + perft 黄金断言）
 
 | 语言 | 命令（在对应引擎目录执行） | 状态 |
 |---|---|---|
-| Python | `python main.py test` | ✅ 110/111（唯一失败为 CPython 深度3 搜索耗时性能断言，非逻辑错误） |
-| JavaScript | `node main.js test` | ✅ 111/111 |
+| Python | `python main.py test` | ✅ **111/111**（2026-09-28 实测复跑：`111 passed, 0 failed`，7.0 秒） |
+| JavaScript | `node main.js test` | ✅ **111/111**（2026-09-28 实测复跑：`111 passed, 0 failed`，1.1 秒） |
 | C# | `dotnet run -- test` | ✅ 111/111 |
 | Java | `javac -d out *.java && java -cp out Main test` | ✅ 111/111 |
 | Go | `go run . test` | ✅ 111/111 |
@@ -72,7 +72,11 @@ node src/timing.js    # 10 引擎权威 timing 基准（Start / Kiwipete d4）
 | VB.NET | GUI 版（`ChessUI.vb`），无 headless 测试 | ⚠️ 仅 harness 验证 |
 | C++ | `bash build_engines.sh` 重建 `cppchess_driver.exe`（需 MinGW-w64 g++） | ✅ harness + tournament 均验证（JSON-stdio driver 已构建） |
 
-> 注：97 项自测含 perft 黄金断言，与 `perft_spec.txt` 契约一致。
+> 注：**97 项核心断言**在 8 种语言里**逐字一致**（由 `_parity.py` 校验）；
+> 其上另有 **perft 黄金断言 14 条**（`perft_spec.txt` 契约：规范必需 5 条 + 各语言共同覆盖的 d1/d2 等），
+> **8 种语言条数与命名完全一致**，合计 **111 项**。
+> 更大的 `Kiwipete d4` / `Pos5 d4`（>2M 节点，慢）在 Python 与 Rust 里**以注释形式保留作参考**，不参与运行。
+> `_parity.py` 会**先剥注释再统计**，因此"声明"与"实跑"一致。
 
 ## 7. 版本控制与构建
 
@@ -81,7 +85,7 @@ node src/timing.js    # 10 引擎权威 timing 基准（Start / Kiwipete d4）
   - 本地研究缓存（非交付物，仅本地保留）：`_archive/` `_removed_glue_archive/` `_mingw.nupkg` `cordis-main/` `paper-main/`
 - **已推送到 Gitee**：远端 `https://gitee.com/siwpan/lab.git`（当前为**私有**仓库）。本地 **16 个提交 + 13 个 tag 全部已推送**（`git push origin master` + `git push origin --tags` 均已验证远端一致）。
   - tag 序列：<code>v0.1.0</code> → <code>harness-v1</code> → <code>engine-ports-v1</code> → <code>license-v1</code> → <code>tournament-v1</code> → <code>tournament-report-2026-09-28</code> → <code>tournament-parity-v1</code> → <code>spec-clarify-v1</code> → <code>engines-enable-cpp-cs-fs-v1</code> → <code>infra-build-v1</code> → <code>engines-enable-java-v1</code> → <code>docs-readme-v1</code> → <code>chore-gitignore-v1</code>。
-  - 建仓与配 `origin` 用 `D:/projects/allin/tools/gitee_release.py`（`create` + `remote` 子命令）；转公开用其 `public` 子命令。
+  - 建仓与配 `origin` 用 allin 仓的 `tools/gitee_release.py`（`create` + `remote` 子命令）；转公开用其 `public` 子命令。
 - **二进制产物不入仓**：cpp/cs/fs/java 的 `*.exe/*.dll/out/*.class` 被 `.gitignore` 忽略，克隆后需本地重建，见 §10。
 - **本地参考克隆不入仓**：`cordis-main/`（Cordis 上游源码）、`paper-main/`（论文参考）仅本地保留、已 gitignore，用于溯源，运行时不需要。
 - **许可证**：见 `LICENSE`（MIT）。
@@ -90,7 +94,7 @@ node src/timing.js    # 10 引擎权威 timing 基准（Start / Kiwipete d4）
 
 - **`cordis-main/` 本地保留但已 gitignore**：它是 `chess-cordis` 的上游溯源地基，**仅本地存在、不推送**（已加入 `.gitignore`），勿删除；其 `.github/` 工作流目录已剥离（第三方 CI 含 npm publish，误推送会触发）。
 - 根目录旧报告（`CROSS_VALIDATION_REPORT.md` 等）已归档至 `_archive/`，以 `UNIFIED_ARCHITECTURE_REPORT.md` 为唯一权威。
-- `chess-cordis/config/cordis.yml` 与 `tournament/engines.mjs` 均含本机绝对路径（如 `D:/dotnet8`、`D:/jdk21`、`D:/projects/lab/...`）。换机/换用户须改为相对路径或环境变量；原文档中 `F:/mingw64`、`F:/dotnet` 等 F 盘引用已失效（本机已无 F 盘）。
+- ~~`chess-cordis/config/cordis.yml` 与 `tournament/engines.mjs` 均含本机绝对路径~~ —— **2026-09-28 已修复**：两者均改为「仓内路径由脚本位置推导 + 工具走环境变量/PATH」，硬编码路径门禁由**阻断转为通过**（39 → 0）。
 
 ---
 
@@ -139,7 +143,7 @@ ENGINES_FILTER=go,rust,py node run_tournament.mjs   # 只跑子集冒烟
 
 纯解释型引擎（go/rust/vb/ts/js/py）无需本脚本。
 
-**本机工具链位置**（可经环境变量覆盖）：`D:/dotnet8`（.NET 8 SDK，含 runtime）、`D:/jdk21`（JDK 21）、`E:/mingw64`（MinGW-w64 GCC，C++ driver 构建）。换机时分别用 `DOTNET=` / `JAVAC=` / `CXX=` 覆盖。
+**工具链**：一律取 PATH；装在非标准位置时用环境变量覆盖（`LAB_DOTNET` / `LAB_JAVA` / `LAB_PYTHON` / `LAB_NODE` / `LAB_GPP` / `LAB_VCVARS` / `LAB_MINGW_DIR`）。
 
 ## 11. License
 

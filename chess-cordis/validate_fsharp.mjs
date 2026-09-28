@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-// 去本地化（2026-09-28）：原先写死 F:/dotnet/dotnet.exe 与 E:/lab/FSharpChess/...。
+// 去本地化（2026-09-28）：原先写死 dotnet 与 FSharpChess/...。
 // dotnet 走环境变量 / PATH；DLL 由本文件位置推导（本文件在 chess-cordis/ 下）。
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CMD = process.env.LAB_DOTNET || 'dotnet';

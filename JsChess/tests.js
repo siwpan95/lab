@@ -1,7 +1,7 @@
 // =============================================================================
 // tests.js — 核心规则自测（JavaScript ES Module）
 // -----------------------------------------------------------------------------
-// 与 E:\lab\CppChess\tests.cpp 完全对等的移植：24 个测试函数 / 97 项断言。
+// 与 CppChess\tests.cpp 完全对等的移植：24 个测试函数 / 97 项断言。
 // 覆盖：初始走法数 / 过路兵 / 王车易位 / 升变 / 将死（学者杀、愚兄杀）/
 //       逼和 / 子力不足 / 50 步计数 / IsAttacked 基础语义 / 钉死 / 逃将 /
 //       EP 揭开将军 / 子力不足扩展 / 深度3计时 / 角格车被吃撤销易位权 /
@@ -542,18 +542,18 @@ function TestPerft() {
     const p1 = BuildPosition(
         ["rnbqkbnr", "pppppppp", "........", "........", "........", "........", "PPPPPPPP", "RNBQKBNR"],
         "KQkq");
-    Check('Perft Pos1 Start d1=20', perft(p1, 1) === 20);
-    Check('Perft Pos1 Start d2=400', perft(p1, 2) === 400);
-    Check('Perft Pos1 Start d3=8902', perft(p1, 3) === 8902);
-    Check('Perft Pos1 Start d4=197281', perft(p1, 4) === 197281);
+    Check('Perft Start d1 = 20', perft(p1, 1) === 20);
+    Check('Perft Start d2 = 400', perft(p1, 2) === 400);
+    Check('Perft Start d3 = 8902', perft(p1, 3) === 8902);
+    Check('Perft Start d4 = 197281', perft(p1, 4) === 197281);
 
     // Pos2 Kiwipete
     const p2 = BuildPosition(
         ["r3k2r", "p1ppqpb1", "bn2pnp1", "3PN3", "1p2P3", "2N2Q1p", "PPPBBPPP", "R3K2R"],
         "KQkq");
-    Check('Perft Pos2 Kiwipete d1=48', perft(p2, 1) === 48);
-    Check('Perft Pos2 Kiwipete d2=2039', perft(p2, 2) === 2039);
-    Check('Perft Pos2 Kiwipete d3=97862', perft(p2, 3) === 97862);
+    Check('Perft Kiwipete d1 = 48', perft(p2, 1) === 48);
+    Check('Perft Kiwipete d2 = 2039', perft(p2, 2) === 2039);
+    Check('Perft Kiwipete d3 = 97862', perft(p2, 3) === 97862);
     // d4=4085603 (放慢，>2M 节点，仅作参考)
 
     // Pos3 Wiki3  (canonical: 8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1)
@@ -562,18 +562,18 @@ function TestPerft() {
     const p3 = BuildPosition(
         ["8", "2p5", "3p4", "KP5r", "1R3p1k", "8", "4P1P1", "8"],
         "");
-    Check('Perft Pos3 Wiki3 d1=14', perft(p3, 1) === 14);
-    Check('Perft Pos3 Wiki3 d2=191', perft(p3, 2) === 191);
-    Check('Perft Pos3 Wiki3 d3=2812', perft(p3, 3) === 2812);
-    Check('Perft Pos3 Wiki3 d4=43238', perft(p3, 4) === 43238);
+    Check('Perft Pos3 d1 = 14', perft(p3, 1) === 14);
+    Check('Perft Pos3 d2 = 191', perft(p3, 2) === 191);
+    Check('Perft Pos3 d3 = 2812', perft(p3, 3) === 2812);
+    Check('Perft Pos3 d4 = 43238', perft(p3, 4) === 43238);
 
     // Pos4 Wiki5
     const p4 = BuildPosition(
         ["rnbq1k1r", "pp1Pbppp", "2p5", "8", "2B5", "8", "PPP1NnPP", "RNBQK2R"],
         "KQ");
-    Check('Perft Pos4 Wiki5 d1=44', perft(p4, 1) === 44);
-    Check('Perft Pos4 Wiki5 d2=1486', perft(p4, 2) === 1486);
-    Check('Perft Pos4 Wiki5 d3=62379', perft(p4, 3) === 62379);
+    Check('Perft Pos5 d1 = 44', perft(p4, 1) === 44);
+    Check('Perft Pos5 d2 = 1486', perft(p4, 2) === 1486);
+    Check('Perft Pos5 d3 = 62379', perft(p4, 3) === 62379);
     // d4=2103487 (放慢，>2M 节点，仅作参考)
 }
 

@@ -36,7 +36,7 @@ export const MAX_PLY = 160;        // hard cap on half-moves per game (draw if e
 export const GAMES_PER_PAIR = 2;   // swap colors
 
 // ---------------------------------------------------------------------------
-// 去本地化（2026-09-28）：原先这里写死了 `D:/projects/lab/...`、`D:/dotnet8`、
+// 去本地化（2026-09-28）：原先这里写死了 `...`、`D:/dotnet8`、
 // `D:/jdk21`、以及**另一台机器的用户目录** `C:/Users/13122/...` —— 那些路径在本机
 // 全部不存在（`projects` 目录实测不存在）。改为：
 //

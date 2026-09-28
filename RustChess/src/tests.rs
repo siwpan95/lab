@@ -130,10 +130,10 @@ fn test_perft() {
         ],
         "KQkq",
     );
-    check("perft Start d1 == 20", perft(&start, 1) == 20);
-    check("perft Start d2 == 400", perft(&start, 2) == 400);
-    check("perft Start d3 == 8902", perft(&start, 3) == 8902);
-    check("perft Start d4 == 197281", perft(&start, 4) == 197281);
+    check("Perft Start d1 = 20", perft(&start, 1) == 20);
+    check("Perft Start d2 = 400", perft(&start, 2) == 400);
+    check("Perft Start d3 = 8902", perft(&start, 3) == 8902);
+    check("Perft Start d4 = 197281", perft(&start, 4) == 197281);
 
     // Pos2 "Kiwipete"
     let kiwipete = setup_position(
@@ -142,20 +142,20 @@ fn test_perft() {
         ],
         "KQkq",
     );
-    check("perft Kiwipete d1 == 48", perft(&kiwipete, 1) == 48);
-    check("perft Kiwipete d2 == 2039", perft(&kiwipete, 2) == 2039);
-    check("perft Kiwipete d3 == 97862", perft(&kiwipete, 3) == 97862);
-    // check("perft Kiwipete d4 == 4085603", perft(&kiwipete, 4) == 4085603); // 参考，>2M 节点，慢
+    check("Perft Kiwipete d1 = 48", perft(&kiwipete, 1) == 48);
+    check("Perft Kiwipete d2 = 2039", perft(&kiwipete, 2) == 2039);
+    check("Perft Kiwipete d3 = 97862", perft(&kiwipete, 3) == 97862);
+    // check("Perft Kiwipete d4 = 4085603", perft(&kiwipete, 4) == 4085603); // 参考，>2M 节点，慢
 
     // Pos3 "Wiki3"  (canonical perft position 3: 8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1)
     let wiki3 = setup_position(
         ["8", "2p5", "3p4", "KP5r", "1R3p1k", "8", "4P1P1", "8"],
         "",
     );
-    check("perft Wiki3 d1 == 14", perft(&wiki3, 1) == 14);
-    check("perft Wiki3 d2 == 191", perft(&wiki3, 2) == 191);
-    check("perft Wiki3 d3 == 2812", perft(&wiki3, 3) == 2812);
-    check("perft Wiki3 d4 == 43238", perft(&wiki3, 4) == 43238);
+    check("Perft Pos3 d1 = 14", perft(&wiki3, 1) == 14);
+    check("Perft Pos3 d2 = 191", perft(&wiki3, 2) == 191);
+    check("Perft Pos3 d3 = 2812", perft(&wiki3, 3) == 2812);
+    check("Perft Pos3 d4 = 43238", perft(&wiki3, 4) == 43238);
 
     // Pos4 "Wiki5"
     let wiki5 = setup_position(
@@ -164,10 +164,10 @@ fn test_perft() {
         ],
         "KQ",
     );
-    check("perft Wiki5 d1 == 44", perft(&wiki5, 1) == 44);
-    check("perft Wiki5 d2 == 1486", perft(&wiki5, 2) == 1486);
-    check("perft Wiki5 d3 == 62379", perft(&wiki5, 3) == 62379);
-    // check("perft Wiki5 d4 == 2103487", perft(&wiki5, 4) == 2103487); // 参考，>2M 节点，慢
+    check("Perft Pos5 d1 = 44", perft(&wiki5, 1) == 44);
+    check("Perft Pos5 d2 = 1486", perft(&wiki5, 2) == 1486);
+    check("Perft Pos5 d3 = 62379", perft(&wiki5, 3) == 62379);
+    // check("Perft Pos5 d4 = 2103487", perft(&wiki5, 4) == 2103487); // 参考，>2M 节点，慢
 }
 
 // ---------- 1. 初始局面 ----------

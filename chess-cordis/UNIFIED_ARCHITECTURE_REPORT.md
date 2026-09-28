@@ -1,14 +1,14 @@
 # Unified Multi-Language Chess Engine — A Cordis Architecture Report
 
-**Project:** `E:\lab\chess-cordis`
+**Project:** `chess-cordis`
 **Date:** 2026-08-27
 **Status:** ✅ RE-ALIGNED & VALIDATED — consumes the real `cordis` + `@cordisjs/plugin-loader`
 (no vendored copy); each language engine stays **zero-dependency** and **cordis-unaware**;
 the JSON-stdio harness glue lives in `chess-cordis/drivers/<lang>/`. **10 engines** validated
 across 10 languages (JS, TS, C#, F#, Java, Python, VB.NET, **C++, Go, Rust**) on 7 golden perft
 positions + cross-engine `bestMove` consensus; `cpp`/`go`/`rust` **enabled** (toolchain located on
-this machine — `F:/go/bin/go.exe`, `%USERPROFILE%/.cargo/bin/{cargo,rustc}.exe`,
-`F:/mingw64/mingw64/bin/g++.exe`). Both `src/host.js` and `src/stress.js` exit `0`.
+this machine — `go`, `cargo/rustc（PATH）/{cargo,rustc}.exe`,
+`g++`). Both `src/host.js` and `src/stress.js` exit `0`.
 
 ---
 
@@ -29,7 +29,7 @@ validation.
 **Architecture boundary (the re-alignment):**
 - `chess-cordis` **consumes** the real `cordis` core and the `@cordisjs/plugin-loader`
   package (installed in `node_modules`, *not* vendored).
-- Each language engine (`E:/lab/*Chess`) is **zero-dependency** and **cordis-unaware**.
+- Each language engine (`*Chess`) is **zero-dependency** and **cordis-unaware**.
   No JSON-stdio / Cordis glue lives inside an engine directory.
 - The JSON-stdio glue lives in `chess-cordis/drivers/<lang>/` as a **harness adapter**:
   JS is imported in-process (`src/ports/js.mjs`); every other engine is a subprocess
@@ -241,14 +241,14 @@ the engine's zero-dep core — these are NOT inside the engine repositories):
 |-----|------------|------------------------------------------------------|---------------------------------------------------|
 | js  | JavaScript | node (native import)                                 | `src/ports/js.mjs` → `../../../JsChess/chessCore.js` |
 | ts  | TypeScript | esbuild → cjs                                       | `ts/out/driver.cjs` (bundled TsChess core)        |
-| py  | Python     | `F:/Python314/python.exe`                           | `py_engine_driver.py` (sys.path → `E:/lab/PyChess`)|
-| cs  | C#         | `F:/dotnet/dotnet.exe` (net8.0)                    | `csharp/bin/Release/net8.0/ChessEngineDriver.dll` |
-| fsharp | F#       | `F:/dotnet/dotnet.exe` (net8.0)                    | `fsharp/bin/Release/net8.0/FSharpChessDriver.dll` |
-| java| Java       | `F:/andriod/jbr/bin/java.exe` (openjdk 21)         | `java/out/` (javac of `Driver.java` + JavaChess)  |
+| py  | Python     | `python`                           | `py_engine_driver.py` (sys.path → `PyChess`)|
+| cs  | C#         | `dotnet` (net8.0)                    | `csharp/bin/Release/net8.0/ChessEngineDriver.dll` |
+| fsharp | F#       | `dotnet` (net8.0)                    | `fsharp/bin/Release/net8.0/FSharpChessDriver.dll` |
+| java| Java       | `java` (openjdk 21)         | `java/out/` (javac of `Driver.java` + JavaChess)  |
 | vb  | VB.NET     | `C:/Windows/Microsoft.NET/Framework64/v4.0.30319/vbc.exe` | `vb/VBChessDriver.exe` (vbc .NET Framework 4.x) |
-| cpp  | C++        | `F:/mingw64/mingw64/bin/g++.exe` (MinGW-w64 16.1.0)     | `cpp/cppchess_driver.exe` (`g++ -static`, links `E:/lab/CppChess` core/ai) |
-| go   | Go         | `F:/go/bin/go.exe` (Go 1.27.0)                          | `go/gochess_driver.exe` (`go build` of `E:/lab/GoChess` core/ai + driver) |
-| rust | Rust       | `%USERPROFILE%/.cargo/bin/{cargo,rustc}.exe`            | `rust/target/release/rustchess_driver.exe` (`cargo build --release` of `E:/lab/RustChess` core/ai + driver) |
+| cpp  | C++        | `g++` (MinGW-w64 16.1.0)     | `cpp/cppchess_driver.exe` (`g++ -static`, links `CppChess` core/ai) |
+| go   | Go         | `go` (Go 1.27.0)                          | `go/gochess_driver.exe` (`go build` of `GoChess` core/ai + driver) |
+| rust | Rust       | `cargo/rustc（PATH）/{cargo,rustc}.exe`            | `rust/target/release/rustchess_driver.exe` (`cargo build --release` of `RustChess` core/ai + driver) |
 
 All ten were built and independently verified to return `Start d3 = 8902` and
 `Start d4 = 197281` over the protocol before wiring. (cpp/go/rust were added after the
@@ -259,7 +259,7 @@ re-alignment once their toolchains were located on this machine — see §8.1.)
 ## 5. File Manifest
 
 ```
-E:/lab/chess-cordis/
+chess-cordis/
 ├── package.json                 # type: module; deps: cordis, @cordisjs/plugin-loader, js-yaml
 ├── config/
 │   ├── cordis.yml               # DECLARATIVE engine manifest (Cordis Loader shape):
@@ -281,7 +281,7 @@ E:/lab/chess-cordis/
 │       ├── subprocess.mjs       # subprocessEnginePlugin: spawn + JSON-stdio rpc +
 │       │                            ctx.effect kill; registers into registry
 │       └── common.mjs           # shared registerNative/registerSubprocess + moveToUci/perft helpers
-├── drivers/                     # HARNESS glue only; reuses engine cores from E:/lab/*Chess
+├── drivers/                     # HARNESS glue only; reuses engine cores from *Chess
 │   ├── csharp/  ChessEngineDriver.csproj  Driver.cs  bin/Release/net8.0/ChessEngineDriver.{dll,exe}
 │   ├── fsharp/  FSharpChessDriver.fsproj  Driver.fs  bin/Release/net8.0/FSharpChessDriver.{dll,exe}
 │   ├── java/    Driver.java  out/ (Driver.class + JavaChess core)
@@ -291,7 +291,7 @@ E:/lab/chess-cordis/
 └── UNIFIED_ARCHITECTURE_REPORT.md
 ```
 
-Engine sources (outside this project, retained in `E:/lab/<Lang>Chess/`, **zero-dependency
+Engine sources (outside this project, retained in `<Lang>Chess/`, **zero-dependency
 and cordis-unaware**): `JsChess/`, `TsChess/`, `PyChess/`, `CSharpChess/`, `FSharpChess/`,
 `JavaChess/`, `VBChess/` — each a self-contained chess core + its own AI. `chess-cordis`
 imports/spawns them; it never writes Cordis or JSON-stdio code into them.
@@ -331,7 +331,7 @@ imports/spawns them; it never writes Cordis or JSON-stdio code into them.
    into the empty squares, producing wrong perft. **Fix:** clear the board to `'.'` (or re-zero
    it) before applying the FEN — done in every driver's `fromFen`/`setupFromFen`.
 7. **ESM import specifiers must be valid URLs / relative paths.** `import ... from
-   'E:/lab/JsChess/chessCore.js'` is rejected by Node ("protocol 'e:' not supported"). Use a
+   'JsChess/chessCore.js'` is rejected by Node ("protocol 'e:' not supported"). Use a
    relative specifier (`'../../../JsChess/chessCore.js'`) or a `file://` URL.
 
 ---
@@ -340,24 +340,24 @@ imports/spawns them; it never writes Cordis or JSON-stdio code into them.
 
 ```bash
 # 0. (One-time) install the real Cordis packages — NO vendoring / esbuild bundle needed
-cd E:/lab/chess-cordis
+cd chess-cordis
 npm install            # pulls cordis + @cordisjs/plugin-loader + js-yaml
 
 # 1. Build the harness drivers (one per enabled language; all already built)
 #    C#:   dotnet build drivers/csharp/ChessEngineDriver.csproj -c Release
 #    F#:   dotnet build drivers/fsharp/FSharpChessDriver.fsproj -c Release
-#    Java: F:/andriod/jbr/bin/javac.exe -d drivers/java/out drivers/java/Driver.java E:/lab/JavaChess/ChessCore.java E:/lab/JavaChess/ChessAI.java
+#    Java: javac -d drivers/java/out drivers/java/Driver.java JavaChess/ChessCore.java JavaChess/ChessAI.java
 #    TS:   node_modules/.bin/esbuild drivers/ts/driver.ts --bundle --platform=node --format=cjs --outfile=drivers/ts/out/driver.cjs
-#    VB:   C:/Windows/Microsoft.NET/Framework64/v4.0.30319/vbc.exe -nologo -codepage:65001 -optimize -r:System.dll -main:Driver -out:drivers/vb/VBChessDriver.exe E:\lab\VBChess\ChessCore.vb E:\lab\VBChess\ChessAI.vb drivers\vb\Driver.vb
+#    VB:   C:/Windows/Microsoft.NET/Framework64/v4.0.30319/vbc.exe -nologo -codepage:65001 -optimize -r:System.dll -main:Driver -out:drivers/vb/VBChessDriver.exe VBChess\ChessCore.vb VBChess\ChessAI.vb drivers\vb\Driver.vb
 #    Py:   (no build; interpreted)
 
 # 2. Run the 10-engine validation
 cd /e/lab/chess-cordis
-C:/Users/13122/.workbuddy/binaries/node/versions/22.22.2/node.exe src/host.js
+node src/host.js
 echo $?   # 0 = perft goldens + bestMove consensus pass on all 10 engines
 
 # 3. Run the temporal hot-swap stress test
-C:/Users/13122/.workbuddy/binaries/node/versions/22.22.2/node.exe src/stress.js
+node src/stress.js
 echo $?   # 0 = STRESS TEST: ALL PHASES PASS (py child killed on teardown, js re-mounted)
 ```
 
@@ -383,8 +383,8 @@ Natural next steps:
   — *implemented & validated* (this revision).
 - ✅ **Cross-language timing table** — *implemented & populated* (`src/timing.js`, §8.1). Measures
   perft/node throughput per language behind the JSON-stdio gateway, surfacing the IPC vs compute split.
-- ✅ **cpp / go / rust:** *enabled* — toolchain located on this machine (`F:/go/bin/go.exe`,
-  `%USERPROFILE%/.cargo/bin/{cargo,rustc}.exe`, `F:/mingw64/mingw64/bin/g++.exe`); their
+- ✅ **cpp / go / rust:** *enabled* — toolchain located on this machine (`go`,
+  `cargo/rustc（PATH）/{cargo,rustc}.exe`, `g++`); their
   `drivers/<lang>/` JSON-stdio adapters were built and validated against the golden perft values.
   The fleet is now **10 engines / 10 languages**.
 
@@ -492,10 +492,10 @@ via `js-yaml`, maps each entry to a real loader entry, and calls the **real**
 plugins:
   js:     { kind: native,     enabled: true,  language: JavaScript }
   ts:     { kind: subprocess, enabled: true,  language: TypeScript, cmd: <node>, args: [drivers/ts/out/driver.cjs] }
-  py:     { kind: subprocess, enabled: true,  language: Python,     cmd: F:/Python314/python.exe, args: [drivers/py_engine_driver.py] }
-  cs:     { kind: subprocess, enabled: true,  language: C#,         cmd: F:/dotnet/dotnet.exe, args: [drivers/csharp/bin/Release/net8.0/ChessEngineDriver.dll] }
-  fsharp: { kind: subprocess, enabled: true,  language: F#,         cmd: F:/dotnet/dotnet.exe, args: [drivers/fsharp/bin/Release/net8.0/FSharpChessDriver.dll] }
-  java:   { kind: subprocess, enabled: true,  language: Java,       cmd: F:/andriod/jbr/bin/java.exe, args: [-cp, drivers/java/out, Driver] }
+  py:     { kind: subprocess, enabled: true,  language: Python,     cmd: python, args: [drivers/py_engine_driver.py] }
+  cs:     { kind: subprocess, enabled: true,  language: C#,         cmd: dotnet, args: [drivers/csharp/bin/Release/net8.0/ChessEngineDriver.dll] }
+  fsharp: { kind: subprocess, enabled: true,  language: F#,         cmd: dotnet, args: [drivers/fsharp/bin/Release/net8.0/FSharpChessDriver.dll] }
+  java:   { kind: subprocess, enabled: true,  language: Java,       cmd: java, args: [-cp, drivers/java/out, Driver] }
   vb:     { kind: subprocess, enabled: true,  language: VB.NET,     cmd: drivers/vb/VBChessDriver.exe, args: [] }
   cpp:    { kind: subprocess, enabled: true,  language: C++,  cmd: drivers/cpp/cppchess_driver.exe, args: [] }
   go:     { kind: subprocess, enabled: true,  language: Go,   cmd: drivers/go/gochess_driver.exe, args: [] }
@@ -538,7 +538,7 @@ These were the concrete defects blocking a green run before the fixes above:
 3. **Async perft/bestMove not awaited.** `registry.mjs` `runPerft`/`runBestMove` called
    `e.perft(...)` without `await`, so subprocess (Promise-returning) engines silently reported
    `ok=false`. Made both functions `async` and `await`ed the calls.
-4. **JS native engine not loading.** `js.mjs` imported `'E:/lab/JsChess/chessCore.js'` — an
+4. **JS native engine not loading.** `js.mjs` imported `'JsChess/chessCore.js'` — an
    invalid ESM specifier (Node rejects the `e:` protocol). Switched to a relative
    `'../../../JsChess/chessCore.js'`.
 5. **JS ghost pieces.** `fromFen` in `js.mjs` did not clear `GameState`'s prefilled start
@@ -560,7 +560,7 @@ These were the concrete defects blocking a green run before the fixes above:
 |-----|------------|---------------|---------------|-------------------|-------|
 | js  | JavaScript | n/a (native)  | ✅            | ✅ d1d5 / d1d4    | import of `../../../JsChess`; board-clear fix applied |
 | ts  | TypeScript | ✅ esbuild    | ✅            | ✅                 | `out/driver.cjs`; board-clear applied in driver |
-| py  | Python     | ✅            | ✅            | ✅                 | `sys.path` injects `E:/lab/PyChess` |
+| py  | Python     | ✅            | ✅            | ✅                 | `sys.path` injects `PyChess` |
 | cs  | C#         | ✅ dotnet     | ✅            | ✅                 | `MoveToUci` `ToRow` fix |
 | fsharp | F#       | ✅ dotnet     | ✅            | ✅                 | 6 张 PST 已补（不再纯子力；Start d2 现选 b1c3，见 §9.6） |
 | java | Java       | ✅ javac      | ✅            | ✅                 | `getStr` quote-index fix |
@@ -588,13 +588,13 @@ were executed and re-verified:
    perft is unaffected (eval is not used by perft) and still passes; `Start d2` bestMove moved from the
    passive `a2a3` to `b1c3`, matching the other engines (the eval-invariant divergence is now limited
    to `vb`/`cpp` `g1f3`, which is expected at depth 2).
-3. **`E:\lab` had zero version control.** Ran `git init` and wrote `.gitignore`
+3. **`.` had zero version control.** Ran `git init` and wrote `.gitignore`
    (`bin/ obj/ target/ out/ __pycache__/ node_modules/ *.exe *.dll`). No bulk commit was made — the
    user can stage when ready.
 4. **Two contradictory stale root reports archived.** `CROSS_VALIDATION_REPORT.md` (02:47) and
    `PERFT_VALIDATION_REPORT.md` (07:34) — which claimed "5 languages never ran" — were moved to
-   `E:\lab/_archive/`. `UNIFIED_ARCHITECTURE_REPORT.md` is now the **sole authoritative** report.
+   `_archive/`. `UNIFIED_ARCHITECTURE_REPORT.md` is now the **sole authoritative** report.
    - Separately, per the memo's maintained stance ("keep `cordis-main/`, strip only `.github/`"),
-     `E:\lab\cordis-main/.github/` (contained only `workflows/`) was **removed**.
+     `cordis-main/.github/` (contained only `workflows/`) was **removed**.
 
 **Result:** local-research = 🟢 Go confirmed; the 4 conditional pre-release items are closed.

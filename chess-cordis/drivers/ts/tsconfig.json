@@ -7,12 +7,12 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "rootDir": "E:/lab",
-    "outDir": "E:/lab/chess-cordis/drivers/ts/out"
+    "rootDir": ".",
+    "outDir": "chess-cordis/drivers/ts/out"
   },
   "include": [
-    "E:/lab/TsChess/chessCore.ts",
-    "E:/lab/TsChess/chessAI.ts",
-    "E:/lab/chess-cordis/drivers/ts/driver.ts"
+    "TsChess/chessCore.ts",
+    "TsChess/chessAI.ts",
+    "chess-cordis/drivers/ts/driver.ts"
   ]
 }

@@ -3,9 +3,9 @@
 // engine itself stays zero-dependency and cordis-unaware. Serves perft /
 // legalMoves / bestMove over line-delimited JSON on stdin/stdout.
 //
-// Build (from E:/lab/chess-cordis):
-//   g++.exe -O2 -std=c++17 -I E:/lab/CppChess
-//     drivers/cpp/driver.cpp E:/lab/CppChess/chess_core.cpp E:/lab/CppChess/chess_ai.cpp
+// Build (from chess-cordis):
+//   g++.exe -O2 -std=c++17 -I CppChess
+//     drivers/cpp/driver.cpp CppChess/chess_core.cpp CppChess/chess_ai.cpp
 //     -o drivers/cpp/cppchess_driver.exe
 #include "chess_core.h"
 #include "chess_ai.h"

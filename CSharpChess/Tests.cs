@@ -143,19 +143,19 @@ namespace ChessEngine
                 GameState s = SetupPosition(new string[] {
                     "8","2p5","3p4","KP5r",
                     "1R3p1k","8","4P1P1","8" }, "");
-                Check("Perft Wiki3 d1 = 14", Perft(s, 1) == 14);
-                Check("Perft Wiki3 d2 = 191", Perft(s, 2) == 191);
-                Check("Perft Wiki3 d3 = 2812", Perft(s, 3) == 2812);
-                Check("Perft Wiki3 d4 = 43238", Perft(s, 4) == 43238);
+                Check("Perft Pos3 d1 = 14", Perft(s, 1) == 14);
+                Check("Perft Pos3 d2 = 191", Perft(s, 2) == 191);
+                Check("Perft Pos3 d3 = 2812", Perft(s, 3) == 2812);
+                Check("Perft Pos3 d4 = 43238", Perft(s, 4) == 43238);
             }
             // Pos4 "Wiki5"
             {
                 GameState s = SetupPosition(new string[] {
                     "rnbq1k1r","pp1Pbppp","2p5","8",
                     "2B5","8","PPP1NnPP","RNBQK2R" }, "KQ");
-                Check("Perft Wiki5 d1 = 44", Perft(s, 1) == 44);
-                Check("Perft Wiki5 d2 = 1486", Perft(s, 2) == 1486);
-                Check("Perft Wiki5 d3 = 62379", Perft(s, 3) == 62379);
+                Check("Perft Pos5 d1 = 44", Perft(s, 1) == 44);
+                Check("Perft Pos5 d2 = 1486", Perft(s, 2) == 1486);
+                Check("Perft Pos5 d3 = 62379", Perft(s, 3) == 62379);
                 // 参考：Wiki5 d4 = 2103487（>2M 节点，运行较慢，不自动执行）
             }
         }

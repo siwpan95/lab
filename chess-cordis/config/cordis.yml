@@ -13,7 +13,7 @@
 # Architecture boundary (post re-alignment):
 #   * chess-cordis CONSUMES the real `cordis` + `@cordisjs/plugin-loader`
 #     packages (no vendored copy).
-#   * Each language engine (E:/lab/*Chess) stays ZERO-DEPENDENCY and
+#   * Each language engine (*Chess) stays ZERO-DEPENDENCY and
 #     cordis-UNAWARE. No JSON-stdio / cordis glue lives inside an engine dir.
 #   * The JSON-stdio glue lives in chess-cordis/drivers/<lang>/ as a HARNESS
 #     adapter: js is imported in-process (src/ports/js.mjs); every other enabled
@@ -25,15 +25,15 @@
 #   drivers/fsharp/  -> FSharpChessDriver.dll (dotnet build, net8.0)
 #   drivers/java/    -> out/ (javac of Driver.java + JavaChess core)
 #   drivers/vb/      -> VBChessDriver.exe     (vbc, .NET Framework 4.x)
-#   drivers/py/      -> py_engine_driver.py    (sys.path injects E:/lab/PyChess)
+#   drivers/py/      -> py_engine_driver.py    (sys.path injects PyChess)
 #   drivers/ts/      -> out/driver.cjs         (esbuild bundle of TsChess core)
 #   drivers/go/      -> gochess_driver.exe    (go build of chess_core/chess_ai + driver)
 #   drivers/rust/    -> target/release/rustchess_driver.exe (cargo build --release)
 #   drivers/cpp/     -> cppchess_driver.exe    (g++.exe -static, links chess_core/chess_ai)
 #
 # cpp / go / rust are ENABLED: toolchain located on this machine
-#   (F:/go/bin/go.exe, %USERPROFILE%/.cargo/bin/{cargo,rustc}.exe,
-#    F:/mingw64/mingw64/bin/g++.exe). Their harness drivers were built and
+#   (go, cargo/rustc（PATH）/{cargo,rustc}.exe,
+#    g++). Their harness drivers were built and
 #   validated against the golden perft values.
 
 plugins:
@@ -49,9 +49,9 @@ plugins:
     # Kiwipete d4 (4.08M nodes) takes ~14s in-process-equivalent; raise past the
     # 15s default so the timing harness can measure it instead of timing out.
     timeout: 120000
-    cmd: C:/Users/13122/.workbuddy/binaries/node/versions/22.22.2/node.exe
+    cmd: node
     args:
-      - E:/lab/chess-cordis/drivers/ts/out/driver.cjs
+      - chess-cordis/drivers/ts/out/driver.cjs
 
   py:
     kind: subprocess
@@ -60,60 +60,60 @@ plugins:
     # Python perft is the slowest by a wide margin (~82s on Kiwipete d4); raise
     # the timeout well above that so the timing harness can measure it.
     timeout: 120000
-    cmd: F:/Python314/python.exe
+    cmd: python
     args:
-      - E:/lab/chess-cordis/drivers/py_engine_driver.py
+      - chess-cordis/drivers/py_engine_driver.py
 
   cs:
     kind: subprocess
     enabled: true
     language: C#
-    cmd: F:/dotnet/dotnet.exe
+    cmd: dotnet
     args:
-      - E:/lab/chess-cordis/drivers/csharp/bin/Release/net8.0/ChessEngineDriver.dll
+      - chess-cordis/drivers/csharp/bin/Release/net8.0/ChessEngineDriver.dll
 
   fsharp:
     kind: subprocess
     enabled: true
     language: F#
-    cmd: F:/dotnet/dotnet.exe
+    cmd: dotnet
     args:
-      - E:/lab/chess-cordis/drivers/fsharp/bin/Release/net8.0/FSharpChessDriver.dll
+      - chess-cordis/drivers/fsharp/bin/Release/net8.0/FSharpChessDriver.dll
 
   java:
     kind: subprocess
     enabled: true
     language: Java
-    cmd: F:/andriod/jbr/bin/java.exe
+    cmd: java
     args:
       - -cp
-      - E:/lab/chess-cordis/drivers/java/out
+      - chess-cordis/drivers/java/out
       - Driver
 
   vb:
     kind: subprocess
     enabled: true
     language: VB.NET
-    cmd: E:/lab/chess-cordis/drivers/vb/VBChessDriver.exe
+    cmd: chess-cordis/drivers/vb/VBChessDriver.exe
     args: []
 
   cpp:
     kind: subprocess
     enabled: true
     language: C++
-    cmd: E:/lab/chess-cordis/drivers/cpp/cppchess_driver.exe
+    cmd: chess-cordis/drivers/cpp/cppchess_driver.exe
     args: []
 
   go:
     kind: subprocess
     enabled: true
     language: Go
-    cmd: E:/lab/chess-cordis/drivers/go/gochess_driver.exe
+    cmd: chess-cordis/drivers/go/gochess_driver.exe
     args: []
 
   rust:
     kind: subprocess
     enabled: true
     language: Rust
-    cmd: E:/lab/chess-cordis/drivers/rust/target/release/rustchess_driver.exe
+    cmd: chess-cordis/drivers/rust/target/release/rustchess_driver.exe
     args: []

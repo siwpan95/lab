@@ -13,7 +13,7 @@
 ## 目录结构
 
 ```
-E:\lab\CppChess\
+CppChess\
 ├── chess_core.h    规则引擎（棋盘/走法/终局判定，无 UI 依赖，可独立测试）
 ├── chess_core.cpp  规则引擎实现（对齐 VBChess/ChessCore.vb）
 ├── chess_ai.h      AI 引擎声明（negamax + alpha-beta + PST + 静态搜索）
@@ -21,7 +21,7 @@ E:\lab\CppChess\
 ├── tests.cpp       控制台自测（97 项断言，对齐 ChessTests.vb）
 ├── main.cpp        入口：test / selfplay / bench / play 子命令
 ├── CMakeLists.txt  CMake 构建（可选）
-├── build.bat       一键构建脚本（编译 + 自动跑测，g++/MSVC 双编译器自动探测，优先 F:\VS2022）
+├── build.bat       一键构建脚本（编译 + 自动跑测，g++/MSVC 双编译器自动探测）
 ├── .gitignore      排除 bin/ 等构建产物
 ├── README.md       本文档
 └── bin\                构建产物目录（已被 .gitignore 忽略）
@@ -32,23 +32,23 @@ E:\lab\CppChess\
 
 `build.bat` 采用 **g++ / MSVC 双编译器自动探测**，无需手动配置环境：
 
-1. **优先 g++（MinGW-w64）**：依次探测 `PATH` → `C:\tools\mingw64` → `C:\ProgramData\chocolatey\bin` → `C:\msys64\mingw64\bin` → `E:\mingw64\bin`
+1. **优先 g++（MinGW-w64）**：依次探测 `PATH` → `C:\ProgramData\chocolatey\bin`（或用 `set LAB_GPP=...\g++.exe` 直接指定）— 原候选段：`C:\tools\mingw64` → `C:\ProgramData\chocolatey\bin` → `C:\msys64\mingw64\bin` → `E:\mingw64\bin`
 2. **g++ 未找到时自动切 MSVC**：通过 `vcvars64.bat` 初始化 MSVC 环境后再用 `cl` 编译
-   - 按显式候选探测，**`F:\VS2022` 排第一**（你指定的安装盘，避开 C 盘空间压力），另有
-     `F:\VS2022Community`、`F:\VisualStudio2022` 与标准 C: 路径
+   - 按显式候选探测，探测顺序见下（**不再写死盘符**），另有
+     Visual Studio 2022 的**标准安装位置**
      （Community / Professional / Enterprise）兜底
    - 注：脚本为规避 cmd 的 `(x86)` 括号解析陷阱（会把 `(x86)` 的 `)` 误判为代码块结束），
      **不使用 `for` 列表、不内联 `(x86)` 路径、注释与代码均零括号**，全部用 `goto` 标签控制流程。
-     若 VS 装在其它盘，直接在 `build.bat` 的候选段加一行 `if not defined VCVARS if exist "X:\...\vcvars64.bat" set "VCVARS=..."` 即可。
+     若 VS 装在非标准位置，**不用改脚本**，设环境变量即可：`set LAB_VCVARS=X:\...\vcvars64.bat`。原做法：在 `build.bat` 候选段加一行 `if not defined VCVARS if exist "X:\...\vcvars64.bat" set "VCVARS=..."` 即可。
 
 **方式 A — build.bat（推荐，Windows）**
-双击 `build.bat`，或在命令行执行 `cd /d E:\lab\CppChess && build.bat`。
+双击 `build.bat`，或在命令行执行 `cd /d CppChess && build.bat`。
 脚本自动完成：探测编译器（g++ 或 MSVC）→ 编译 `cppchess.exe` → 运行 97 项自测 → 全绿输出 BUILD COMPLETE。
 
-> - 本机无预装编译器时，可用便携 MinGW-w64：解压到 `E:\mingw64`（`E:\mingw64\bin\g++.exe`），
+> - 本机无预装编译器时，可用便携 MinGW-w64：解压到任意目录（如仓内 `.toolchains\mingw64`），把其 `bin` 加进 PATH（或用 `set LAB_GPP=...\g++.exe`），原写法：`E:\mingw64`（`g++`），
 >   build.bat 会自动识别。
-> - 已装 **Visual Studio（含「使用 C++ 的桌面开发」）到 `F:\VS2022`** 时，build.bat 自动找到
->   `F:\VS2022\VC\Auxiliary\Build\vcvars64.bat` 并初始化环境，无需手动配 PATH；装到其它盘也会被
+> - 已装 **Visual Studio（含「使用 C++ 的桌面开发」）到 Visual Studio 2022 安装目录** 时，build.bat 自动找到
+>   Visual Studio 2022 标准安装位置下的 `vcvars64.bat` 并初始化环境，无需手动配 PATH；装到其它盘也会被
 >   `vswhere` 动态搜到。
 
 **方式 B — 手动 g++**
@@ -59,7 +59,7 @@ bin\cppchess.exe test
 
 **方式 C — 手动 MSVC（cl）**
 ```bat
-call "F:\VS2022\VC\Auxiliary\Build\vcvars64.bat"
+call "%LAB_VCVARS%"   rem 或 VS2022 标准安装位置下的 vcvars64.bat
 cl /std:c++17 /O2 /EHsc /utf-8 /nologo /Fobin\ /Fe:bin\cppchess.exe main.cpp chess_core.cpp chess_ai.cpp tests.cpp
 bin\cppchess.exe test
 ```

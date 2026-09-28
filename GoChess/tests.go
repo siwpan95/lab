@@ -98,33 +98,33 @@ func testPerft() {
 	// Pos1 "Start"
 	start := [8]string{"rnbqkbnr", "pppppppp", "........", "........", "........", "........", "PPPPPPPP", "RNBQKBNR"}
 	s1 := setupPosition(start, true, "KQkq")
-	check("Perft Start d1 == 20", perft(s1, 1) == 20)
-	check("Perft Start d2 == 400", perft(s1, 2) == 400)
-	check("Perft Start d3 == 8902", perft(s1, 3) == 8902)
-	check("Perft Start d4 == 197281", perft(s1, 4) == 197281)
+	check("Perft Start d1 = 20", perft(s1, 1) == 20)
+	check("Perft Start d2 = 400", perft(s1, 2) == 400)
+	check("Perft Start d3 = 8902", perft(s1, 3) == 8902)
+	check("Perft Start d4 = 197281", perft(s1, 4) == 197281)
 
 	// Pos2 "Kiwipete"
 	kiwi := [8]string{"r3k2r", "p1ppqpb1", "bn2pnp1", "3PN3", "1p2P3", "2N2Q1p", "PPPBBPPP", "R3K2R"}
 	s2 := setupPosition(kiwi, true, "KQkq")
-	check("Perft Kiwipete d1 == 48", perft(s2, 1) == 48)
-	check("Perft Kiwipete d2 == 2039", perft(s2, 2) == 2039)
-	check("Perft Kiwipete d3 == 97862", perft(s2, 3) == 97862)
+	check("Perft Kiwipete d1 = 48", perft(s2, 1) == 48)
+	check("Perft Kiwipete d2 = 2039", perft(s2, 2) == 2039)
+	check("Perft Kiwipete d3 = 97862", perft(s2, 3) == 97862)
 	// Kiwipete d4 == 4085603 (>2M 节点，较慢，仅作注释参考，不自动运行)
 
 	// Pos3 "Wiki3"  (canonical perft position 3: 8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1)
 	wiki3 := [8]string{"8", "2p5", "3p4", "KP5r", "1R3p1k", "8", "4P1P1", "8"}
 	s3 := setupPosition(wiki3, true, "")
-	check("Perft Wiki3 d1 == 14", perft(s3, 1) == 14)
-	check("Perft Wiki3 d2 == 191", perft(s3, 2) == 191)
-	check("Perft Wiki3 d3 == 2812", perft(s3, 3) == 2812)
-	check("Perft Wiki3 d4 == 43238", perft(s3, 4) == 43238)
+	check("Perft Pos3 d1 = 14", perft(s3, 1) == 14)
+	check("Perft Pos3 d2 = 191", perft(s3, 2) == 191)
+	check("Perft Pos3 d3 = 2812", perft(s3, 3) == 2812)
+	check("Perft Pos3 d4 = 43238", perft(s3, 4) == 43238)
 
 	// Pos4 "Wiki5"
 	wiki5 := [8]string{"rnbq1k1r", "pp1Pbppp", "2p5", "8", "2B5", "8", "PPP1NnPP", "RNBQK2R"}
 	s4 := setupPosition(wiki5, true, "KQ")
-	check("Perft Wiki5 d1 == 44", perft(s4, 1) == 44)
-	check("Perft Wiki5 d2 == 1486", perft(s4, 2) == 1486)
-	check("Perft Wiki5 d3 == 62379", perft(s4, 3) == 62379)
+	check("Perft Pos5 d1 = 44", perft(s4, 1) == 44)
+	check("Perft Pos5 d2 = 1486", perft(s4, 2) == 1486)
+	check("Perft Pos5 d3 = 62379", perft(s4, 3) == 62379)
 	// Wiki5 d4 == 2103487 (>) // Wiki5 d4 == 2103487 (>2M 节点，较慢，仅作注释参考，不自动运行)
 }
 

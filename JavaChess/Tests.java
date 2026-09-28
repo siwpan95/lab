@@ -532,34 +532,34 @@ public class Tests {
         // Pos1 "Start"
         GameState start = BuildPosition(new String[]{
             "rnbqkbnr","pppppppp","........","........","........","........","PPPPPPPP","RNBQKBNR"}, "KQkq");
-        Check("perft Start d1", perft(start,1) == 20);
-        Check("perft Start d2", perft(start,2) == 400);
-        Check("perft Start d3", perft(start,3) == 8902);
-        Check("perft Start d4", perft(start,4) == 197281);
+        Check("Perft Start d1 = 20", perft(start,1) == 20);
+        Check("Perft Start d2 = 400", perft(start,2) == 400);
+        Check("Perft Start d3 = 8902", perft(start,3) == 8902);
+        Check("Perft Start d4 = 197281", perft(start,4) == 197281);
 
         // Pos2 "Kiwipete"
         GameState kiwi = BuildPosition(new String[]{
             "r3k2r","p1ppqpb1","bn2pnp1","3PN3","1p2P3","2N2Q1p","PPPBBPPP","R3K2R"}, "KQkq");
-        Check("perft Kiwipete d1", perft(kiwi,1) == 48);
-        Check("perft Kiwipete d2", perft(kiwi,2) == 2039);
-        Check("perft Kiwipete d3", perft(kiwi,3) == 97862);
+        Check("Perft Kiwipete d1 = 48", perft(kiwi,1) == 48);
+        Check("Perft Kiwipete d2 = 2039", perft(kiwi,2) == 2039);
+        Check("Perft Kiwipete d3 = 97862", perft(kiwi,3) == 97862);
         // Kiwipete d4 == 4085603 (>2M 节点，较慢，仅作参考)
 
         // Pos3 "Wiki3" — 注意：规范局面第7串为 "4P1P1"（兵在 e2/g2），
         // 而非任务列出的 "PPP3PP"（后者会让 perft(1) 变成 16）。使用规范串以匹配黄金值。
         GameState wiki3 = BuildPosition(new String[]{
             "8","2p5","3p4","KP5r","1R3p1k","8","4P1P1","8"}, "");
-        Check("perft Wiki3 d1", perft(wiki3,1) == 14);
-        Check("perft Wiki3 d2", perft(wiki3,2) == 191);
-        Check("perft Wiki3 d3", perft(wiki3,3) == 2812);
-        Check("perft Wiki3 d4", perft(wiki3,4) == 43238);
+        Check("Perft Pos3 d1 = 14", perft(wiki3,1) == 14);
+        Check("Perft Pos3 d2 = 191", perft(wiki3,2) == 191);
+        Check("Perft Pos3 d3 = 2812", perft(wiki3,3) == 2812);
+        Check("Perft Pos3 d4 = 43238", perft(wiki3,4) == 43238);
 
         // Pos4 "Wiki5"
         GameState wiki5 = BuildPosition(new String[]{
             "rnbq1k1r","pp1Pbppp","2p5","8","2B5","8","PPP1NnPP","RNBQK2R"}, "KQ");
-        Check("perft Wiki5 d1", perft(wiki5,1) == 44);
-        Check("perft Wiki5 d2", perft(wiki5,2) == 1486);
-        Check("perft Wiki5 d3", perft(wiki5,3) == 62379);
+        Check("Perft Pos5 d1 = 44", perft(wiki5,1) == 44);
+        Check("Perft Pos5 d2 = 1486", perft(wiki5,2) == 1486);
+        Check("Perft Pos5 d3 = 62379", perft(wiki5,3) == 62379);
         // Wiki5 d4 == 2103487 (>2M 节点，较慢，仅作参考)
     }
 

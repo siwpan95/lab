@@ -24,7 +24,7 @@
 | MinGW-w64 `g++` | 含静态链接支持 | C++ 驱动（`g++.exe -static`） |
 | TypeScript + esbuild | `tsc` 仅类型检查，`esbuild` 打包 driver | TS 驱动（`out/driver.cjs`） |
 
-> ⚠️ 本机重工具装在 `F:\` 盘（如 `F:\Python314`、`F:\dotnet`、`F:\mingw64`、`F:\go`、`~/.cargo`）。这些**不是仓库要求**，仅说明若工具链不在 `PATH` 上需手动定位（旧报告曾因此误判"缺工具链"）。
+> ⚠️ 本机重工具装在 `F:\` 盘（如 Python、.NET、MinGW-w64、Go、Rust 工具链）。这些**不是仓库要求**，仅说明若工具链不在 `PATH` 上需手动定位（旧报告曾因此误判"缺工具链"）。
 
 ## 3. chess-cordis 的 npm 依赖
 
@@ -64,7 +64,7 @@ harness 直接调用预构建的驱动产物。若需重建：
 | rust | `cargo build --release` → `target/release/rustchess_driver.exe` |
 | java | `javac -d out Driver.java <+ JavaChess core>` |
 | ts | `esbuild driver.ts --bundle --platform=node --outfile=out/driver.cjs` |
-| py | 无需构建（`py_engine_driver.py` 直接运行，sys.path 注入 `E:/lab/PyChess`） |
+| py | 无需构建（`py_engine_driver.py` 直接运行，sys.path 注入 `PyChess`） |
 | vb | `vbc /target:exe /out:VBChessDriver.exe Driver.vb` |
 
 ## 5. 验证环境（本机已复验）

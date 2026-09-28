@@ -356,16 +356,29 @@ function write({ date, depth, suite, rows, divergences, stats, matrix, order, so
   L.push('');
   L.push('当日循环赛 30 局只产生了 6 种不同棋谱：');
   L.push('');
-  L.push('| 棋谱类 | 出现次数 | 成员 |');
-  L.push('| --- | ---: | --- |');
-  L.push('| rust/ts/js/py 互相对弈 | 12 | 四者任意搭配（双向） |');
-  L.push('| go 与 vb 对弈（go 白） | 5 | go-vb, rust-vb, ts-vb, js-vb, py-vb |');
-  L.push('| go 执黑 | 4 | rust-go, ts-go, js-go, py-go |');
-  L.push('| vb 执白 vs 四者 | 4 | vb-rust, vb-ts, vb-js, vb-py |');
-  L.push('| go 执白 vs 四者 | 4 | go-rust, go-ts, go-js, go-py |');
-  L.push('| vb 白 vs go 黑 | 1 | vb-go |');
-  L.push('');
-  L.push('也就是说这 6 个引擎实际只有 **3 种行为**： {rust, ts, js, py} 完全一致，go 与 vb 各自偏离。');
+  // 2026-09-28 修（同一类措辞 bug）：下面这段是**为「六引擎齐全」那一轮写死的观察**
+  //   （固定分类表 + 固定结论 {rust,ts,js,py} 一致、go/vb 各自偏离）。
+  //   若本轮引擎集不同（例如本机只有 ts/js/py 可用），照旧打印就会把**别轮的结论当成本轮结果**。
+  //   ⇒ 加前提守卫：只有本轮参与引擎与该观察的前提完全一致时才展示。
+  const DESCRIBED_RUN = ['rust', 'ts', 'js', 'py', 'go', 'vb'];
+  const describedRun = order.length === DESCRIBED_RUN.length
+    && DESCRIBED_RUN.every((id) => order.includes(id));
+  if (describedRun) {
+    L.push('| 棋谱类 | 出现次数 | 成员 |');
+    L.push('| --- | ---: | --- |');
+    L.push('| rust/ts/js/py 互相对弈 | 12 | 四者任意搭配（双向） |');
+    L.push('| go 与 vb 对弈（go 白） | 5 | go-vb, rust-vb, ts-vb, js-vb, py-vb |');
+    L.push('| go 执黑 | 4 | rust-go, ts-go, js-go, py-go |');
+    L.push('| vb 执白 vs 四者 | 4 | vb-rust, vb-ts, vb-js, vb-py |');
+    L.push('| go 执白 vs 四者 | 4 | go-rust, go-ts, go-js, go-py |');
+    L.push('| vb 白 vs go 黑 | 1 | vb-go |');
+    L.push('');
+    L.push('也就是说这 6 个引擎实际只有 **3 种行为**： {rust, ts, js, py} 完全一致，go 与 vb 各自偏离。');
+  } else {
+    L.push(`> ⚠ 本轮参与引擎为 **${order.join(' / ')}**，与「六引擎齐全」那一轮的前提不同，`);
+    L.push('> 故**不展示**该分类表 —— 避免把别轮的观察当成本轮的结果。');
+    L.push('> （该分类表的原始前提：rust / ts / js / py / go / vb 六者同场。）');
+  }
   L.push('但"偏离"不等于"有错"，循环赛本身无法裁决谁对谁错。这里用独立裁判基准来判断。');
   L.push('');
 
@@ -420,13 +433,52 @@ function write({ date, depth, suite, rows, divergences, stats, matrix, order, so
   L.push('');
   const stableIds = sortEvidence.filter((s) => !/不稳定/.test(s.semantics)).map((s) => s.id);
   const stableSet = stableIds.filter((id) => order.includes(id));
-  const majorityAgreement = stableSet.length >= 2
-    ? rows.filter((r) => stableSet.every((id) => r.answers[id] && r.answers[id].move === r.answers[stableSet[0]].move)).length
-    : rows.length;
+  const N = rows.length;
+  const ansOf = (r, id) => (r.answers[id] && r.answers[id].move) || null;
+
+  // 2026-09-28 修（措辞 bug，用户指出）：
+  //   原文把三件事写成常量，于是数字一变就自相矛盾：
+  //     ① `majorityAgreement` 算的是**组内**一致，后面却无条件接「也与基准一致」——
+  //        当组内一致数为 0 时，就成了「0/26 完全一致，也与基准一致」（实测复现）；
+  //     ② 「分歧只发生在 VB.NET 与 Go 上」是**写死**的，别的引擎偏离时照旧这么印；
+  //     ③ `stableSet` 为空或只有 1 个时，`stableSet[0]` 是 undefined。
+  //   ⇒ 一律改为**由数据推导**，并覆盖空集/单元素/零一致这些边界。
+  const groupAgree = stableSet.length >= 2
+    ? rows.filter((r) => {
+        const a0 = ansOf(r, stableSet[0]);
+        return a0 && stableSet.every((id) => ansOf(r, id) === a0);
+      }).length
+    : 0;
+  const withBase = stableSet.length >= 1
+    ? rows.filter((r) => {
+        const a0 = ansOf(r, stableSet[0]);
+        return a0 && a0 === r.ref && stableSet.every((id) => ansOf(r, id) === a0);
+      }).length
+    : 0;
+  const diverging = order.filter((id) => rows.some((r) => ansOf(r, id) && ansOf(r, id) !== r.ref));
+
   L.push('');
-  L.push(`观察到的分歧只发生在 VB.NET 与 Go 上——两者都是**不稳定排序**语言；`);
-  L.push(`而 ${stableSet.join(' / ')} 这群使用稳定排序的引擎之间 ${majorityAgreement}/${rows.length} 完全一致，也与基准一致。`);
-  L.push('这与"排序稳定性决定同分取舍"的解释完全吻合。');
+  if (!stableSet.length) {
+    L.push('本轮没有"使用稳定排序"的引擎参与，或参与数不足两个，**无法据此段归因**。');
+  } else if (stableSet.length === 1) {
+    L.push(`参与的使用稳定排序的引擎只有 ${stableSet[0]} 一个，不足以谈"组内一致"；` +
+      `它与基准一致 ${withBase}/${N}。`);
+  } else {
+    const tail = withBase === N
+      ? '，**且与基准一致**。'
+      : withBase === 0
+        ? `，但**与基准不一致**（与基准一致 0/${N}）。`
+        : `，其中与基准一致 ${withBase}/${N}。`;
+    L.push(`而 ${stableSet.join(' / ')} 这群使用稳定排序的引擎之间 ${groupAgree}/${N} 一致${tail}`);
+  }
+  L.push(diverging.length
+    ? `本轮实际偏离基准的引擎：${diverging.join(' / ')}。`
+    : '本轮所有参与的引擎都与基准一致。');
+  const explained = stableSet.length >= 2 && groupAgree === N && withBase === N;
+  L.push(explained
+    ? '这与"排序稳定性决定同分取舍"的解释完全吻合。'
+    : '这与"排序稳定性决定同分取舍"的解释**只部分吻合** —— 请结合上表与"偏离引擎"一行判断，'
+      + '不要把它当作已证结论。');
   L.push('');
   L.push('**结论：这些分歧不是移植缺陷，而是规范本身不完整。**');
   L.push('若要让六个语言的引擎逐着法完全对齐，建议按此优先级补充 `port_spec.txt`：');

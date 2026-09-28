@@ -221,11 +221,15 @@ function writeReport({ date, env, participants, disabled, pairs, games, scores, 
     const bp = participants.find((x) => x.id === b) || { id: b, language: '?' };
     lines.push(`### ${ap.id} (${ap.language}) vs ${bp.id} (${bp.language})`);
     lines.push('');
-    for (let g = 0; g < GAMES_PER_PAIR; g++) {
+    // 2026-09-28 fix: 这里原先用的是模块常量 GAMES_PER_PAIR，而不是本次运行实际
+    // 用的 gamesPerPair。一旦用 GAMES_PER_PAIR 环境变量覆盖（如冒烟测试设 1），
+    // 报告就会去读不存在的对局 → describeGame 收到 undefined 直接崩。
+    for (let g = 0; g < gamesPerPair; g++) {
       // white/black assignment for this game (swap colors each game)
       const whiteId = g % 2 === 0 ? a : b;
       const blackId = g % 2 === 0 ? b : a;
       const game = games[gameIdx++];
+      if (!game) break; // 防御：对局数少于预期时不要越界读
       const res = describeGame(game, whiteId, blackId);
       lines.push(`**第 ${g + 1} 局** （${whiteId} 执白， ${blackId} 执黑） — ${res}`);
       if (game.moves.length) {

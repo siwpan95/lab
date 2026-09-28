@@ -1,0 +1,321 @@
+================================================================================
+多语言国际象棋引擎 — 移植规范 (CANONICAL SPEC)
+================================================================================
+本规范是 E:\lab 下所有语言版本（Python / C# / TypeScript / JavaScript /
+Java / Rust / Go）必须严格对齐的"单一真相来源"。
+
+权威实现：E:\lab\CppChess\ 下的 chess_core.h/.cpp、chess_ai.h/.cpp、
+tests.cpp、main.cpp。本规范是其提炼；若本规范与 C++ 源码冲突，以 C++ 源码为准。
+
+目标：每个语言版本都是功能对等的国际象棋引擎，支持：
+  规则引擎 + AI 搜索 + 97 项自测 + 控制台 (test/selfplay/bench/play)。
+约束：零第三方依赖，仅用语言标准库。不要运行/编译测试（用户要求暂不执行验证）。
+
+--------------------------------------------------------------------------------
+1. 数据模型 (所有语言必须一致)
+--------------------------------------------------------------------------------
+棋盘：8x8 二维数组 board[row][col]。
+  row 0 = 第 8 横线（黑方底线，屏幕上方）；row 7 = 第 1 横线（白方底线，下方）。
+  col 0..7 = a..h 文件。
+  大写字母 = 白方棋子：K Q R B N P
+  小写字母 = 黑方棋子：k q r b n p
+  '.' = 空格
+
+GameState 字段：
+  board[8][8]           字符棋盘
+  whiteToMove          bool，true=白方走
+  canCastleWK/WQ/BK/BQ bool，四方易位权
+  enPassantRow/Col     int，过路兵目标格；无 = -1
+  halfmoveClock        int，50步规则半步计数（吃子或动兵清零）
+  fullmoveNumber       int，开局=1，每黑方走完+1
+  history              string 列表（长式代数记谱，仅 recordHistory 时记录）
+  positionKeys         string 列表（局面键历史，用于三次重复；初始局面须含 1 个）
+
+Move 字段：
+  fromRow fromCol toRow toCol  int
+  piece     被移动棋子字符
+  captured  被吃棋子字符（'.'=未吃；过路兵填被吃兵字符）
+  special    见下枚举
+  promotion  升变目标棋子字符（仅升变时有效，'.'=无）
+
+SpecialMove 枚举：
+  None=0, DoublePawn=1, EnPassant=2, CastleKingside=3, CastleQueenside=4, Promotion=5
+
+Move.toString() 记谱规则（与 C++ Move::toString 完全一致）：
+  - CastleKingside -> "O-O"；CastleQueenside -> "O-O-O"
+  - 兵：file(fromCol) + toSquare；若吃子则前缀 file(fromCol)；升变追加 "=" + 大写升变子
+  - 其它：大写(piece) + fromSquare + (吃子则 'x') + toSquare
+  - toSquare = file(col) + (8 - row)；file(col)= "abcdefgh"[col]
+
+--------------------------------------------------------------------------------
+2. 规则引擎 Rules (静态/模块函数)
+--------------------------------------------------------------------------------
+InBoard(r,c)            r,c ∈ [0,7]
+IsWhitePiece(p)         p!='.' 且为大写
+IsBlackPiece(p)         p!='.' 且为小写
+IsPieceOfSide(p,white)  该棋子是否属于该方
+
+IsAttacked(board, r, c, byWhite) -> bool
+  单一例程，支撑整个规则库。检测 (r,c) 是否被 byWhite 方攻击：
+  1) 兵攻击：白兵攻击其上方两斜格 (pr=r+1)，黑兵 (pr=r-1)；检查 (pr,c-1),(pr,c+1)
+  2) 马攻击：8 个 L 偏移
+  3) 王攻击：8 邻格
+  4) 滑动射线：8 方向，前 4 个为直线(车/后)，后 4 个为斜线(象/后)；遇到首枚非空格，
+     若为对应攻击子则返回 true，否则停止该射线。
+
+GeneratePseudoMoves(state, r, c) -> Move[]
+  仅按几何规则生成，不检验送王。按棋子类型分派：
+  - 兵 GeneratePawnMoves：前进 1 格(空)；起始行(double: 白 row6->4, 黑 row1->3)可进 2 格
+    (DoublePawn，过路兵目标格=(fromRow+toRow)/2)；斜吃敌子；若 (tr,tc)==(epRow,epCol)
+    生成 EnPassant(被吃子填敌兵字符)。兵到达 row0/row7 时生成 4 种升变(Promotion,
+    promo ∈ "QRBN"，黑方转小写)。
+  - 马/王：固定偏移 GenerateOffsetMoves（王额外调用 GenerateCastlingMoves）
+  - 象/车/后：滑动 GenerateSlidingMoves
+  偏移表（务必与 C++ 一致）：
+    马 dr=[-2,-2,-1,-1,1,1,2,2] dc=[-1,1,-2,2,-2,2,-1,1]
+    王 dr=[-1,-1,-1,0,0,1,1,1]  dc=[-1,0,1,-1,1,-1,0,1]
+    象 dr=[-1,-1,1,1]           dc=[-1,1,-1,1]
+    车 dr=[-1,1,0,0]            dc=[0,0,-1,1]
+    后 dr=[-1,1,0,0,-1,-1,1,1]  dc=[0,0,-1,1,-1,1,-1,1]
+    滑动射线方向 dr=[-1,1,0,0,-1,-1,1,1] dc=[0,0,-1,1,-1,1,-1,1]
+      （前4=直线，后4=斜线，与 IsAttacked 一致）
+
+GenerateCastlingMoves(state, r, c, isWhite)：
+  白王仅在 r=7,c=4；黑王仅在 r=0,c=4。
+  白短易位：canCastleWK && b[7][7]=='R' && b[7][5]=='.' && b[7][6]=='.'
+            且 7,4 / 7,5 / 7,6 均不被黑攻击。
+  白长易位：canCastleWQ && b[7][0]=='R' && b[7][1..3]=='.'
+            且 7,4 / 7,3 / 7,2 均不被黑攻击。
+  黑短易位：canCastleBK && b[0][7]=='r' && b[0][5]=='.' && b[0][6]=='.'
+            且 0,4 / 0,5 / 0,6 均不被白攻击。
+  黑长易位：canCastleBQ && b[0][0]=='r' && b[0][1..3]=='.'
+            且 0,4 / 0,3 / 0,2 均不被白攻击。
+  生成对应 CastleKingside/CastleQueenside 走法。
+
+GenerateLegalMoves(state, r, c) -> Move[]
+  两阶段：先 GeneratePseudoMoves，对每步在 CloneLight() 副本上 ApplyMove(false)，
+  再用 FindKing + IsAttacked 检验己方王是否仍被攻击；不安全则丢弃。
+
+GenerateAllLegalMoves(state) -> Move[]
+  遍历全盘，对本方(whiteToMove)所有棋子调用 GenerateLegalMoves 并合并。
+
+ApplyMove(state, m, recordHistory=true)：
+  1) board[to]=piece; board[from]='.'
+  2) 特殊：
+     DoublePawn -> epRow=(fromRow+toRow)/2, epCol=fromCol
+     EnPassant   -> 移除被吃兵：capRow = (piece=='P'? toRow+1 : toRow-1); board[capRow][toCol]='.'
+     CastleKingside -> board[fromRow][5]=board[fromRow][7]; board[fromRow][7]='.'
+     CastleQueenside -> board[fromRow][3]=board[fromRow][0]; board[fromRow][0]='.'
+     Promotion -> board[toRow][toCol]=promotion
+  3) 若 special != DoublePawn，清空 epRow/epCol = -1
+  4) 易位权：K 走 -> WK=WQ=false；k 走 -> BK=BQ=false；
+     角格(0/7行,0/7列)的 from 或 to 命中则对应侧易位权=false
+     （a1=7,0 / h1=7,7 / a8=0,0 / h8=0,7）
+  5) 50步：动兵或吃子 -> halfmoveClock=0，否则 +1
+  6) 若 !whiteToMove 则 fullmoveNumber++；翻转 whiteToMove；
+     recordHistory 时 push history 与 GetPositionKey()
+
+FindKing(board, isWhite) -> (r,c)（-1,-1 若不在）
+IsInCheck(state, isWhite) -> bool：定位王，调用 IsAttacked(...,!isWhite)
+IsCheckmate(state)    = IsInCheck(side) && 无合法走法
+IsStalemate(state)    = !IsInCheck(side) && 无合法走法
+IsFiftyMoveDraw(state)= halfmoveClock >= 100
+HasLegalEnPassant(state)：若 epRow<0 返回 false；pawnRank=白?epRow+1:epRow-1，
+  检查 epCol±1 是否有本方兵且存在 EnPassant 合法走法。
+IsThreefoldRepetition(state)：positionKeys 末项出现 >=3 次。
+IsInsufficientMaterial(state)：
+  收集非王非空格子（区分黑白）。若存在 P/R/Q -> false。
+  total=白非王数+黑非王数：
+    0 或 1 -> true（KvK / K+单象/单马vK）
+    2 -> 若双方各一子 -> true；若同侧两子：
+        BB：两象同色格( (r+c)%2 相同 ) -> true，异色 -> false（可杀）
+        NN -> true（双马和棋）；其它 -> false
+    其它 -> false
+  注意：K+兵/K+车/K+后 已在有 P/R/Q 时返回 false。
+
+GetPositionKey(state)：64 格 + side(w/b) + 四方易位权(K/Q/k/q 或 '-') +
+  若 HasLegalEnPassant 为真则 "epRow,epCol" 否则 "-1,-1"。
+  （ep 格仅在存在合法吃过路兵时才编码，符合 FEN 标准）
+
+Clone()：深拷贝全部字段含 history/positionKeys。
+CloneLight()：同 Clone 但跳过 history 与 positionKeys（AI 搜索用）。
+
+--------------------------------------------------------------------------------
+3. AI 引擎 AIEngine (静态/模块函数)
+--------------------------------------------------------------------------------
+常量：MateScore = 900000；Infinity = 1000000
+
+PieceValue[7] = {0, 100, 320, 330, 500, 900, 0}   // 索引0空 1兵 2马 3象 4车 5后 6王
+
+PST 位置价值表（白方视角，64 项，务必逐字复制，顺序 row0..row7 每列 a..h）：
+PST_Pawn[64]:
+  0,0,0,0,0,0,0,0,
+  50,50,50,50,50,50,50,50,
+  10,10,20,30,30,20,10,10,
+  5,5,10,25,25,10,5,5,
+  0,0,0,20,20,0,0,0,
+  5,-5,-10,0,0,-10,-5,5,
+  5,10,10,-20,-20,10,10,5,
+  0,0,0,0,0,0,0,0
+PST_Knight[64]:
+  -50,-40,-30,-30,-30,-30,-40,-50,
+  -40,-20,0,0,0,0,-20,-40,
+  -30,0,10,15,15,10,0,-30,
+  -30,5,15,20,20,15,5,-30,
+  -30,0,15,20,20,15,0,-30,
+  -30,5,10,15,15,10,5,-30,
+  -40,-20,0,5,5,0,-20,-40,
+  -50,-40,-30,-30,-30,-30,-40,-50
+PST_Bishop[64]:
+  -20,-10,-10,-10,-10,-10,-10,-20,
+  -10,0,0,0,0,0,0,-10,
+  -10,0,5,10,10,5,0,-10,
+  -10,5,5,10,10,5,5,-10,
+  -10,0,10,10,10,10,0,-10,
+  -10,10,10,10,10,10,10,-10,
+  -10,5,0,0,0,0,5,-10,
+  -20,-10,-10,-10,-10,-10,-10,-20
+PST_Rook[64]:
+  0,0,0,0,0,0,0,0,
+  5,10,10,10,10,10,10,5,
+  -5,0,0,0,0,0,0,-5,
+  -5,0,0,0,0,0,0,-5,
+  -5,0,0,0,0,0,0,-5,
+  -5,0,0,0,0,0,0,-5,
+  -5,0,0,0,0,0,0,-5,
+  0,0,0,5,5,0,0,0
+PST_Queen[64]:
+  -20,-10,-10,-5,-5,-10,-10,-20,
+  -10,0,0,0,0,0,0,-10,
+  -10,0,5,5,5,5,0,-10,
+  -5,0,5,5,5,5,0,-5,
+  0,0,5,5,5,5,0,-5,
+  -10,5,5,5,5,5,0,-10,
+  -10,0,5,0,0,0,0,-10,
+  -20,-10,-10,-5,-5,-10,-10,-20
+PST_King[64]:
+  -30,-40,-40,-50,-50,-40,-40,-30,
+  -30,-40,-40,-50,-50,-40,-40,-30,
+  -30,-40,-40,-50,-50,-40,-40,-30,
+  -30,-40,-40,-50,-50,-40,-40,-30,
+  -20,-30,-30,-40,-40,-30,-30,-20,
+  -10,-20,-20,-20,-20,-20,-20,-10,
+  20,20,0,0,0,0,20,20,
+  20,30,10,0,0,10,30,20
+
+PieceIndex(p): P->1 N->2 B->3 R->4 Q->5 K->6 其它->0
+GetPST(idx,pos): 按 idx 返回对应表[pos]
+
+Evaluate(state) -> int（白方视角，正=白优）：
+  for 每格 p:
+    if p=='.' continue
+    idx=PieceIndex(p); pos=r*8+c
+    if 大写: score += PieceValue[idx] + GetPST(idx, pos)
+    else:    score -= PieceValue[idx] + GetPST(idx, (7-r)*8+c)   // 黑取白表行镜像
+  return score
+
+EvaluateSide(state)：白方走返回 Evaluate，否则返回 -Evaluate（negamax 约定）
+
+MoveOrderScore(m): 非吃子=0；否则 victim*10 - attacker（victim/attacker 用 PieceValue[PieceIndex]）
+OrderMoves(moves): 按 MoveOrderScore 降序排序
+
+Quiescence(state, alpha, beta, qdepth):
+  stand = EvaluateSide(state)
+  if stand >= beta return beta
+  if stand > alpha: alpha = stand
+  if qdepth >= 4 return alpha
+  收集所有合法走法中的吃子着法，OrderMoves 后递归：
+    score = -Quiescence(child, -beta, -alpha, qdepth+1)
+    if score >= beta return beta
+    if score > alpha: alpha = score
+  return alpha
+
+Negamax(state, depth, alpha, beta, ply):
+  moves = GenerateAllLegalMoves(state)
+  if moves.empty():
+    if IsInCheck(side): return -MateScore + ply   // 被将死，离根越近越差
+    return 0                                        // 逼和
+  if depth <= 0: return Quiescence(state, alpha, beta, 0)
+  OrderMoves(moves)
+  best = -Infinity
+  for m in moves:
+    child = CloneLight(); ApplyMove(child, m, false)
+    score = -Negamax(child, depth-1, -beta, -alpha, ply+1)
+    if score > best: best = score
+    if best > alpha: alpha = best
+    if alpha >= beta: break
+  return best
+
+FindBestMove(state, depth) -> 可选 Move（无合法走法=None/nullopt/Option::None/None）：
+  moves = GenerateAllLegalMoves(state)
+  if empty: return None
+  if size==1: return moves[0]
+  OrderMoves(moves)
+  bestMove=moves[0]; bestScore=-Infinity; alpha=-Infinity; beta=Infinity
+  for m in moves:
+    child=CloneLight(); ApplyMove(child,m,false)
+    score = -Negamax(child, depth-1, -beta, -alpha, 1)
+    if score > bestScore: bestScore=score; bestMove=m
+    if score > alpha: alpha = score
+  return bestMove
+
+--------------------------------------------------------------------------------
+4. 控制台 CLI (main / Program / fn main)
+--------------------------------------------------------------------------------
+子命令（参数解析按语言习惯）：
+  test            运行全部自测，打印 [PASS]/[FAIL]，退出码=失败数（0=全绿）
+  selfplay N D    AI(白)vs AI(黑) 各走 N 步，深度 D；默认 N=8,D=2
+  bench D         初始局面 FindBestMove 计时；默认 D=3
+  play [ai]       文本交互对弈；"e2e4"式输入；升变默认选后；new 重开，quit 退出；
+                  play ai = 人类执白、AI(黑) 接手（默认深度 2）
+  无参数默认 = test
+PrintBoard：绘制 8x8，左侧行号 8..1，底部 a..h。
+ParseSquare("e2") -> (row=8-(digit), col=letter-'a')。
+
+--------------------------------------------------------------------------------
+5. 自测套件（移植 tests.cpp 的 24 组 / 97 项断言，逐字对齐布尔表达式与期望值）
+--------------------------------------------------------------------------------
+务必实现与 C++ tests.cpp 完全一致的 24 个测试函数（函数名可本地化，但断言逻辑、
+期望值、数量须一致）。辅助函数：FindMove(state,r,c,tr,tc)、Play(state,r,c,tr,tc)
+（找合法走法并 Clone+ApplyMove）、EmptyBoard(state)（清空并复位易位权/ep/计数/
+positionKeys 含 1 项）。测试组：
+  1 TestInitialPosition       初始白/黑合法走法=20；b1/g1 马=2；e2 兵=2；d1 后=0；
+                              双方王不被将；非将死；黑先合法走法=20
+  2 TestIsAttackedBasics      空盘布置兵/王，校验 IsAttacked 兵斜吃/不直吃/王邻格语义
+  3 TestPawnDoubleAndEnPassant e2-e4 后 ep=(5,4)、半步=0、轮黑；黑 d7-d5 后轮白；
+                              e5 白兵有 EnPassant；吃后白兵到 d6、黑 d5 移除、ep 清空
+  4 TestCastling              可短/长易位；短易位后王 g1/车 f1/h1 空/失易位权；
+                              d1 被攻击禁长易位；王被将禁易位
+  5 TestPromotion             e7 兵生成 4 种升变；升后 e8=Q、e7 空
+  6 TestScholarMate           学者杀序列后黑被将、IsCheckmate=True、非逼和、轮黑
+  7 TestFoolMate              愚兄杀：白被将、IsCheckmate=True
+  8 TestStalemate             逼和：黑不被将、合法走法=0、IsStalemate=True、非将死
+  9 TestInsufficientMaterial  KK/王+单马/王+单象=不足；王+兵/王+车≠不足；初始≠不足
+ 10 TestFiftyMoveCounter      连续非兵非吃半步计数递增；动兵清零；未达100不判和；
+                              强制100半步判和
+ 11 TestThreefoldRepetition   4步往返=第2次(不判和)；8步往返=第3次(判和)；走新着不再判和
+ 12 TestEvaluation            初始评估=0；白多一兵>0；黑多一马压过白一兵<0
+ 13 TestNegamaxTerminalScores 学者杀 negamax<= -9000；逼和 negamax==0
+ 14 TestAIFindsMate           KQ vs K 局面深度2 找到一步杀(Qh8#) -> 应用后 IsCheckmate
+ 15 TestAICapturesFreeQueen   白后可白吃无保护黑后（toRow=0,toCol=3,captured='q'）
+ 16 TestAIChooseReasonableOpening 初始局面返回合法走法；深度2搜索 < 5000ms
+ 17 TestPinnedPiece           被车钉死的象：伪合法非空、合法为空、王未被将
+ 18 TestCheckEvasion          王被车将：被将；合法走法均解除将军
+ 19 TestEnPassantRevealCheck  EP 吃子会揭开己方王 -> 不出现在合法走法中
+ 20 TestInsufficientMaterialExtended KK/KN/KNN/KBvKB 不足；KBB异色可杀/KBN可杀/K+车可杀 ≠不足
+ 21 TestDepth3Timing          中局深度3 返回合法走法 且 < 2000ms
+ 22 TestCastlingRightRevokedOnRookCapture 黑车吃 h1 白车后白方失短易位权、黑车占 h1
+ 23 TestDegeneratePositions   空盘不被攻击；KvK FindBestMove 有值；将死局面 FindBestMove=None
+ 24 TestPromotionSAN          升后走法存在；SAN 含 "=Q" 且 == "e8=Q"
+
+最终 runTests() 汇总打印 "X passed, Y failed"，返回失败数。
+
+--------------------------------------------------------------------------------
+6. 跨语言约束
+--------------------------------------------------------------------------------
+- 零第三方依赖，仅标准库。
+- 不要运行、不要编译、不要执行任何测试或 benchmark（用户要求暂不验证）。
+- 各语言输出目录与文件见各 agent 任务说明；README/用法注释写进 main 文件头部即可。
+- 保持与 C++ 完全一致的逻辑、常量和边界处理；PST 与 PieceValue 必须逐字一致。
+- 升变默认选后（play 交互与 FindBestMove 无关，仅 play 用）。
+================================================================================

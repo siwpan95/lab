@@ -1,0 +1,22 @@
+# ---- build outputs / generated binaries ----
+bin/
+obj/
+target/
+out/
+__pycache__/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ---- language toolchains / deps ----
+node_modules/
+.venv/
+venv/
+
+# ---- editor / OS ----
+.vs/
+.idea/
+*.user
+Thumbs.db
+.DS_Store

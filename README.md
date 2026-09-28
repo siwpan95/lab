@@ -135,7 +135,7 @@ ENGINES_FILTER=go,rust,py node run_tournament.mjs   # 只跑子集冒烟
 
 纯解释型引擎（go/rust/vb/ts/js/py）无需本脚本。
 
-**本机工具链位置**（可经环境变量覆盖）：`D:/dotnet8`（.NET 8 SDK，含 runtime）、`D:/jdk21`（JDK 21）。C++ 需另行安装 MinGW-w64 并加入 PATH，或 `CXX=/path/g++.exe`。
+**本机工具链位置**（可经环境变量覆盖）：`D:/dotnet8`（.NET 8 SDK，含 runtime）、`D:/jdk21`（JDK 21）、`E:/mingw64`（MinGW-w64 GCC，C++ driver 构建）。换机时分别用 `DOTNET=` / `JAVAC=` / `CXX=` 覆盖。
 
 ## 11. License
 

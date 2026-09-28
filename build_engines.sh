@@ -31,7 +31,7 @@ VERIFY=0
 for a in "$@"; do [ "$a" = "--verify" ] && VERIFY=1; done
 
 # --- 解析工具链（带本机默认回退） -------------------------------------------
-CXX="${CXX:-g++.exe}"
+CXX="${CXX:-E:/mingw64/bin/g++.exe}"
 if command -v "$CXX" >/dev/null 2>&1; then
   CXX="$(command -v "$CXX")"
   HAVE_CXX=1

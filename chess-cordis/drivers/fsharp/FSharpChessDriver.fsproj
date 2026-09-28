@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>ChessEngineDriver</RootNamespace>
+    <AssemblyName>FSharpChessDriver</AssemblyName>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- The driver reuses the PURE F#Chess core (module ChessCore, zero-dependency)
+       as a library and speaks the harness JSON-stdio protocol. It is part of
+       chess-cordis, NOT the engine: the engine dir stays cordis-unaware.
+       Compile order matters in F#: ChessCore.fs (defines the module) MUST come
+       before Driver.fs. -->
+  <ItemGroup>
+    <Compile Include="E:/lab/FSharpChess/ChessCore.fs" />
+    <Compile Include="Driver.fs" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,11 @@
+[package]
+name = "rustchess_driver"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "rustchess_driver"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3

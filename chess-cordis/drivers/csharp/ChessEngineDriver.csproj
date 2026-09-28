@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- We explicitly list every Compile item (the engine core lives OUTSIDE the
+         project dir), so disable the SDK's implicit **/*.cs glob — otherwise
+         Driver.cs (which IS in the project dir) gets included twice. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>ChessEngineDriver</RootNamespace>
+    <AssemblyName>ChessEngineDriver</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>ChessEngineDriver</AssemblyName>
+  </PropertyGroup>
+
+  <!-- The driver reuses the PURE engine core (zero-dependency) as a library and
+       speaks the harness JSON-stdio protocol. It is part of chess-cordis, NOT the
+       engine: the engine dir stays cordis-unaware. -->
+  <!-- The driver reuses the PURE engine core (zero-dependency) as a library and
+       speaks the harness JSON-stdio protocol. It is part of chess-cordis, NOT the
+       engine: the engine dir stays cordis-unaware. Tests.cs is excluded — the
+       driver only needs the core (Rules + AIEngine), not the engine's self-tests. -->
+  <ItemGroup>
+    <Compile Include="E:/lab/CSharpChess/ChessCore.cs" />
+    <Compile Include="E:/lab/CSharpChess/ChessAI.cs" />
+    <Compile Include="Driver.cs" />
+  </ItemGroup>
+
+</Project>

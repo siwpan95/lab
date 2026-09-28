@@ -1,0 +1,19 @@
+{
+  "name": "chess-cordis-harness",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Unify the 8-language chess engine under the Cordis spatiotemporal-composability architecture",
+  "scripts": {
+    "start": "node src/host.js"
+  },
+  "dependencies": {
+    "@standard-schema/spec": "^1.1.0",
+    "cosmokit": "^1.8.1",
+    "js-yaml": "^5.4.1",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  }
+}

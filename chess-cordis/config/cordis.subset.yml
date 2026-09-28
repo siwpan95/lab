@@ -1,0 +1,94 @@
+# cordis.subset.yml — validation subset for the bestMove consensus sweep.
+#
+# Mirrors config/cordis.yml but kept as a standalone manifest for targeted runs
+# (e.g. CORDIS_MANIFEST=config/cordis.subset.yml node src/host.js). The enabled
+# set is the same: the engines that actually build on this machine.
+#
+# cpp / go / rust are DISABLED: no C++ / Go / Rust compiler is available, so
+# their drivers were never built. Re-enable once a toolchain is installed and
+# the respective driver under chess-cordis/drivers/<lang>/ is produced.
+#
+# Enabled engines and their harness drivers:
+#   js     -> native import of E:/lab/JsChess (src/ports/js.mjs)
+#   ts     -> drivers/ts/out/driver.cjs      (esbuild bundle of TsChess)
+#   py     -> drivers/py/py_engine_driver.py (sys.path -> E:/lab/PyChess)
+#   cs     -> drivers/csharp/.../ChessEngineDriver.dll
+#   fsharp -> drivers/fsharp/.../FSharpChessDriver.dll
+#   java   -> drivers/java/out (javac of Driver.java + JavaChess core)
+#   vb     -> drivers/vb/VBChessDriver.exe  (vbc, .NET Framework 4.x)
+
+plugins:
+  js:
+    kind: native
+    enabled: true
+    language: JavaScript
+
+  ts:
+    kind: subprocess
+    enabled: true
+    language: TypeScript
+    cmd: C:/Users/13122/.workbuddy/binaries/node/versions/22.22.2/node.exe
+    args:
+      - E:/lab/chess-cordis/drivers/ts/out/driver.cjs
+
+  py:
+    kind: subprocess
+    enabled: true
+    language: Python
+    cmd: F:/Python314/python.exe
+    args:
+      - E:/lab/chess-cordis/drivers/py_engine_driver.py
+
+  cs:
+    kind: subprocess
+    enabled: true
+    language: C#
+    cmd: F:/dotnet/dotnet.exe
+    args:
+      - E:/lab/chess-cordis/drivers/csharp/bin/Release/net8.0/ChessEngineDriver.dll
+
+  fsharp:
+    kind: subprocess
+    enabled: true
+    language: F#
+    cmd: F:/dotnet/dotnet.exe
+    args:
+      - E:/lab/chess-cordis/drivers/fsharp/bin/Release/net8.0/FSharpChessDriver.dll
+
+  java:
+    kind: subprocess
+    enabled: true
+    language: Java
+    cmd: F:/andriod/jbr/bin/java.exe
+    args:
+      - -cp
+      - E:/lab/chess-cordis/drivers/java/out
+      - Driver
+
+  vb:
+    kind: subprocess
+    enabled: true
+    language: VB.NET
+    cmd: E:/lab/chess-cordis/drivers/vb/VBChessDriver.exe
+    args: []
+
+  cpp:
+    kind: subprocess
+    enabled: false
+    language: C++
+    cmd: E:/lab/chess-cordis/drivers/cpp/server.exe
+    args: []
+
+  go:
+    kind: subprocess
+    enabled: false
+    language: Go
+    cmd: E:/lab/chess-cordis/drivers/go/server.exe
+    args: []
+
+  rust:
+    kind: subprocess
+    enabled: false
+    language: Rust
+    cmd: E:/lab/chess-cordis/drivers/rust/server.exe
+    args: []

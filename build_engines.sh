@@ -60,7 +60,7 @@ rc=0
 # --- C++ : JSON-stdio driver（编译自 CppChess 核心 + harness driver） ---------
 if [ "$HAVE_CXX" = "1" ]; then
   echo "[cpp] building cppchess_driver.exe ..."
-  "$CXX" -O2 -std=c++17 -I "$LAB_ROOT/CppChess" \
+  "$CXX" -O2 -std=c++17 -static -I "$LAB_ROOT/CppChess" \
     "$LAB_ROOT/chess-cordis/drivers/cpp/driver.cpp" \
     "$LAB_ROOT/CppChess/chess_core.cpp" \
     "$LAB_ROOT/CppChess/chess_ai.cpp" \

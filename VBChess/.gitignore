@@ -1,0 +1,7 @@
+# VBChess — 构建产物不入库（发布时由 CI 重新编译 / 签名后分发）
+bin/
+
+# 本地临时文件
+_bench.exe
+_enc_test*.vb
+*.user

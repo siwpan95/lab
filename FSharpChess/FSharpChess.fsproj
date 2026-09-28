@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <WarningLevel>0</WarningLevel>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AssemblyName>FSharpChess</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="ChessCore.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+</Project>

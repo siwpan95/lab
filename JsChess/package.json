@@ -1,0 +1,13 @@
+{
+  "name": "jschess",
+  "version": "1.0.0",
+  "description": "International chess engine in JavaScript (ES Module) — rules + AI + tests, ported from C++ reference.",
+  "type": "module",
+  "scripts": {
+    "test": "node main.js test",
+    "selfplay": "node main.js selfplay",
+    "bench": "node main.js bench",
+    "play": "node main.js play"
+  },
+  "license": "MIT"
+}

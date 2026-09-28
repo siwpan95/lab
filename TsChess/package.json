@@ -1,0 +1,15 @@
+{
+  "name": "tschess",
+  "version": "1.0.0",
+  "description": "TypeScript international chess engine (rules + AI) — functionally equivalent to the C++ reference.",
+  "private": true,
+  "scripts": {
+    "test": "tsx main.ts test",
+    "start": "tsx main.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

@@ -3,7 +3,8 @@
 # 与 Python 版（参考集）比对，确认所有移植版本编码的是同一套 97 项断言 spec。
 import re, os
 
-LAB = r"E:\lab"
+# 仓根由本文件位置推导（原先写死 E:\lab；去本地化，克隆到哪都对）
+LAB = os.path.dirname(os.path.abspath(__file__))
 FILES = {
     "C++(参考)":   "CppChess/tests.cpp",
     "Python":      "PyChess/tests.py",

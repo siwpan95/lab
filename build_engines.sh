@@ -18,11 +18,11 @@
 #   ./build_engines.sh            # 构建全部（C++ 缺编译器时仅告警跳过）
 #   ./build_engines.sh --verify   # 构建后额外跑 tournament/probe.mjs
 #
-# 环境变量（均可覆盖；默认值指向本机隔离安装路径）：
+# 环境变量（均可覆盖；**默认一律取 PATH，不写死本机安装路径**）：
 #   LAB_ROOT   仓库根（默认=本脚本所在目录）
-#   CXX        C++ 编译器（默认 g++.exe；缺省时跳过 C++ 并告警）
-#   DOTNET     dotnet 可执行文件（默认 D:/dotnet8/dotnet.exe，否则取 PATH 中 dotnet）
-#   JAVAC      javac 可执行文件（默认 D:/jdk21/.../bin/javac.exe，否则取 PATH 中 javac）
+#   CXX        C++ 编译器（默认 PATH 上的 g++；缺省时跳过 C++ 并告警）
+#   DOTNET     dotnet 可执行文件（默认 PATH 上的 dotnet）
+#   JAVAC      javac 可执行文件（默认 PATH 上的 javac）
 # =============================================================================
 set -u
 
@@ -30,8 +30,8 @@ LAB_ROOT="$(cd "$(dirname "$0")" && pwd)"
 VERIFY=0
 for a in "$@"; do [ "$a" = "--verify" ] && VERIFY=1; done
 
-# --- 解析工具链（带本机默认回退） -------------------------------------------
-CXX="${CXX:-E:/mingw64/bin/g++.exe}"
+# --- 解析工具链（默认取 PATH；不写死本机绝对路径） ---------------------------
+CXX="${CXX:-g++}"
 if command -v "$CXX" >/dev/null 2>&1; then
   CXX="$(command -v "$CXX")"
   HAVE_CXX=1
@@ -40,13 +40,11 @@ else
 fi
 
 if [ -z "${DOTNET:-}" ]; then
-  if [ -x "D:/dotnet8/dotnet.exe" ]; then DOTNET="D:/dotnet8/dotnet.exe"
-  else DOTNET="$(command -v dotnet || true)"; fi
+  DOTNET="$(command -v dotnet || true)"
 fi
 
 if [ -z "${JAVAC:-}" ]; then
-  if [ -x "D:/jdk21/jdk-21.0.12.1+1/bin/javac.exe" ]; then JAVAC="D:/jdk21/jdk-21.0.12.1+1/bin/javac.exe"
-  else JAVAC="$(command -v javac || true)"; fi
+  JAVAC="$(command -v javac || true)"
 fi
 
 echo "LAB_ROOT = $LAB_ROOT"

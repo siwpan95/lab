@@ -1,9 +1,14 @@
 // Ad-hoc validation for the F# engine: drive it over the JSON-stdio protocol
 // and compare perft node counts + bestMove UCI against known ground truth.
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
-const CMD = 'F:/dotnet/dotnet.exe';
-const ARGS = ['E:/lab/FSharpChess/bin/Release/net8.0/FSharpChess.dll'];
+// 去本地化（2026-09-28）：原先写死 F:/dotnet/dotnet.exe 与 E:/lab/FSharpChess/...。
+// dotnet 走环境变量 / PATH；DLL 由本文件位置推导（本文件在 chess-cordis/ 下）。
+const HERE = dirname(fileURLToPath(import.meta.url));
+const CMD = process.env.LAB_DOTNET || 'dotnet';
+const ARGS = [join(HERE, '..', 'FSharpChess', 'bin', 'Release', 'net8.0', 'FSharpChess.dll')];
 
 const PERFT = [
   ['Start d3', 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 3, 8902],

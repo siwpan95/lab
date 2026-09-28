@@ -1,10 +1,15 @@
-import urllib.request, py7zr, os, time
+import urllib.request, py7zr, os, time, tempfile
 
 URL = ("https://sourceforge.net/projects/mingw-w64/files/Toolchains%20targetting%20Win64/"
        "Personal%20Builds/mingw-builds/8.1.0/threads-posix/seh/"
        "x86_64-8.1.0-release-posix-seh-rt_v6-rev0.7z/download")
-ZIP = r"E:\mingw64.7z"
-DEST = r"E:\mingw64"
+
+# 去本地化（2026-09-28）：原先写死 E:\mingw64.7z / E:\mingw64。
+#   · 压缩包 → 系统临时目录；解压目标 → LAB_MINGW_DIR，否则仓内 .toolchains\mingw64。
+_HERE = os.path.dirname(os.path.abspath(__file__))
+ZIP = os.path.join(tempfile.gettempdir(), "mingw64.7z")
+DEST = os.environ.get("LAB_MINGW_DIR") or os.path.join(
+    os.path.dirname(_HERE), ".toolchains", "mingw64")
 
 print("[1/3] downloading MinGW-builds (SourceForge) ...", flush=True)
 req = urllib.request.Request(URL, headers={"User-Agent": "workbuddy"})

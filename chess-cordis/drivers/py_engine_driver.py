@@ -1,9 +1,15 @@
 # chess-cordis harness-side driver for PyChess (NOT part of the engine).
 # Imports the pure PyChess core and serves perft / bestMove over line-delimited JSON.
 # The engine itself stays zero-dependency and cordis-unaware.
+import os
 import sys
 import json
-sys.path.insert(0, "D:/projects/lab/PyChess")
+
+# 去本地化（2026-09-28）：原先写死 sys.path.insert(0, "D:/projects/lab/PyChess")，
+# 那个目录实测不存在。改为由本文件位置推导仓根：
+#   chess-cordis/drivers/py_engine_driver.py → 上溯三级 = 仓根 → <仓根>/PyChess
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(_REPO_ROOT, "PyChess"))
 from chess_core import GameState, Rules
 from chess_ai import AIEngine
 

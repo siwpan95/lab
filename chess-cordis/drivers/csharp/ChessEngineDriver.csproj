@@ -23,8 +23,8 @@
        engine: the engine dir stays cordis-unaware. Tests.cs is excluded — the
        driver only needs the core (Rules + AIEngine), not the engine's self-tests. -->
   <ItemGroup>
-    <Compile Include="E:/lab/CSharpChess/ChessCore.cs" />
-    <Compile Include="E:/lab/CSharpChess/ChessAI.cs" />
+    <Compile Include="..\..\..\CSharpChess\ChessCore.cs" />
+    <Compile Include="..\..\..\CSharpChess\ChessAI.cs" />
     <Compile Include="Driver.cs" />
   </ItemGroup>
 

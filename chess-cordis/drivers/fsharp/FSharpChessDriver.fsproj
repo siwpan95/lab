@@ -15,7 +15,7 @@
        Compile order matters in F#: ChessCore.fs (defines the module) MUST come
        before Driver.fs. -->
   <ItemGroup>
-    <Compile Include="E:/lab/FSharpChess/ChessCore.fs" />
+    <Compile Include="..\..\..\FSharpChess\ChessCore.fs" />
     <Compile Include="Driver.fs" />
   </ItemGroup>
 

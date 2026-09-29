@@ -4,6 +4,8 @@
 
 #include "chess_ai.h"
 #include <algorithm>
+#include <cstdint>
+#include <cstdio>
 
 // ---------------------------- 子力价值（厘兵单位） ----------------------------
 // 索引：0=空 1=兵 2=马 3=象 4=车 5=后 6=王
@@ -113,6 +115,11 @@ int AIEngine::Evaluate(const GameState& state) {
             }
         }
     }
+    // Tier 2-C 风格术语：白黑镜像差值（白方项加、黑方项减），
+    // 保持「初始局面评估 = 0」的对称性不变量。
+    score += PawnStructureScore(state);
+    score += KingSafetyScore(state);
+    score += BishopPairScore(state);
     // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
     if (state.RepHistory != nullptr) {
         std::string key = state.PositionKeySimple();
@@ -121,6 +128,117 @@ int AIEngine::Evaluate(const GameState& state) {
             score -= REPETITION_PENALTY * it->second;
         }
     }
+    return score;
+}
+
+// ---------------------------- 评估档哈希（Tier 2-C） ----------------------------
+// ProfileHash：profile 规范化串的 djb2-32，与 JS 侧 evalProfileHash / Go 侧 ProfileHash
+// 逐字节同算法。规范化串 "pawnstructure|12|8|22|25|25|10|25|0"（整数无空格），
+// h=5381 起（uint32_t），逐字节 h=h*33+(uint8_t)b 自然回绕，输出 8 位小写 hex。
+std::string AIEngine::ProfileHash() {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%s|%d|%d|%d|%d|%d|%d|%d|%d",
+                  EvalProfile::name, EvalProfile::pawnShieldMissing,
+                  EvalProfile::pawnShieldOpenFile, EvalProfile::doubledPawn,
+                  EvalProfile::isolatedPawn, EvalProfile::passedPawnBase,
+                  EvalProfile::passedPawnPerRank, EvalProfile::bishopPair,
+                  EvalProfile::mobilityWeight);
+    uint32_t h = 5381;
+    for (const char* p = buf; *p != '\0'; ++p)
+        h = h * 33 + static_cast<uint8_t>(*p);
+    char out[16];
+    std::snprintf(out, sizeof(out), "%08x", h);
+    return std::string(out);
+}
+
+// ---------------------------- Tier 2-C 风格术语（白黑镜像差值） ----------------------------
+
+// 兵形分（白方视角差值）：叠兵 / 孤兵 / 通路兵。
+int AIEngine::PawnStructureScore(const GameState& state) {
+    const char (&b)[8][8] = state.board;
+    int wCnt[8] = {0}, bCnt[8] = {0};
+    int wPawns[64][2], bPawns[64][2];
+    int wN = 0, bN = 0;
+    for (int r = 0; r < 8; ++r) {
+        for (int c = 0; c < 8; ++c) {
+            if (b[r][c] == 'P') { wCnt[c]++; wPawns[wN][0] = r; wPawns[wN][1] = c; ++wN; }
+            else if (b[r][c] == 'p') { bCnt[c]++; bPawns[bN][0] = r; bPawns[bN][1] = c; ++bN; }
+        }
+    }
+    int score = 0;
+    for (int c = 0; c < 8; ++c) {
+        if (wCnt[c] > 1) score -= EvalProfile::doubledPawn * (wCnt[c] - 1);
+        if (bCnt[c] > 1) score += EvalProfile::doubledPawn * (bCnt[c] - 1);
+    }
+    for (int i = 0; i < wN; ++i) {
+        int r = wPawns[i][0], c = wPawns[i][1];
+        bool isolated = (c == 0 || wCnt[c - 1] == 0) && (c == 7 || wCnt[c + 1] == 0);
+        if (isolated) score -= EvalProfile::isolatedPawn;
+        bool passed = true;
+        for (int f = c - 1; f <= c + 1 && passed; ++f) {
+            if (f < 0 || f > 7) continue;
+            for (int rr = r - 1; rr >= 0; --rr)
+                if (b[rr][f] == 'p') { passed = false; break; }
+        }
+        if (passed) score += EvalProfile::passedPawnBase + EvalProfile::passedPawnPerRank * (6 - r);
+    }
+    for (int i = 0; i < bN; ++i) {
+        int r = bPawns[i][0], c = bPawns[i][1];
+        bool isolated = (c == 0 || bCnt[c - 1] == 0) && (c == 7 || bCnt[c + 1] == 0);
+        if (isolated) score += EvalProfile::isolatedPawn;
+        bool passed = true;
+        for (int f = c - 1; f <= c + 1 && passed; ++f) {
+            if (f < 0 || f > 7) continue;
+            for (int rr = r + 1; rr <= 7; ++rr)
+                if (b[rr][f] == 'P') { passed = false; break; }
+        }
+        if (passed) score -= EvalProfile::passedPawnBase + EvalProfile::passedPawnPerRank * (r - 1);
+    }
+    return score;
+}
+
+// 王安全分（白方视角差值）：王在老家（白 r>=6 / 黑 r<=1）时检查兵盾与敞开线。
+int AIEngine::KingSafetyScore(const GameState& state) {
+    const char (&b)[8][8] = state.board;
+    int wkR = -1, wkC = -1, bkR = -1, bkC = -1;
+    for (int r = 0; r < 8; ++r)
+        for (int c = 0; c < 8; ++c) {
+            if (b[r][c] == 'K') { wkR = r; wkC = c; }
+            else if (b[r][c] == 'k') { bkR = r; bkC = c; }
+        }
+    if (wkR < 0 || bkR < 0) return 0;
+    int score = 0;
+    if (wkR >= 6) {
+        for (int c = (wkC > 0 ? wkC - 1 : 0); c <= (wkC < 7 ? wkC + 1 : 7); ++c)
+            if (b[wkR - 1][c] != 'P') score -= EvalProfile::pawnShieldMissing;
+        bool shielded = false;
+        for (int r = wkR - 1; r >= 0; --r)
+            if (b[r][wkC] == 'P') { shielded = true; break; }
+        if (!shielded) score -= EvalProfile::pawnShieldOpenFile;
+    }
+    if (bkR <= 1) {
+        for (int c = (bkC > 0 ? bkC - 1 : 0); c <= (bkC < 7 ? bkC + 1 : 7); ++c)
+            if (b[bkR + 1][c] != 'p') score += EvalProfile::pawnShieldMissing;
+        bool shielded = false;
+        for (int r = bkR + 1; r <= 7; ++r)
+            if (b[r][bkC] == 'p') { shielded = true; break; }
+        if (!shielded) score += EvalProfile::pawnShieldOpenFile;
+    }
+    return score;
+}
+
+// 双象分（白方视角差值）。
+int AIEngine::BishopPairScore(const GameState& state) {
+    const char (&b)[8][8] = state.board;
+    int wb = 0, bb = 0;
+    for (int r = 0; r < 8; ++r)
+        for (int c = 0; c < 8; ++c) {
+            if (b[r][c] == 'B') ++wb;
+            else if (b[r][c] == 'b') ++bb;
+        }
+    int score = 0;
+    if (wb >= 2) score += EvalProfile::bishopPair;
+    if (bb >= 2) score -= EvalProfile::bishopPair;
     return score;
 }
 

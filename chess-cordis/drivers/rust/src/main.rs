@@ -209,6 +209,18 @@ fn main() {
                 let key = state.position_key_simple();
                 writeln!(out, "{{\"id\":\"{}\",\"ok\":true,\"key\":\"{}\"}}", id, key).unwrap();
             }
+            "evalProfile" => {
+                // Read-only verification aid: returns this engine's Tier 2-C eval
+                // profile name and its djb2-32 hash (same algorithm as the harness).
+                writeln!(
+                    out,
+                    "{{\"id\":\"{}\",\"ok\":true,\"profile\":\"{}\",\"hash\":\"{}\"}}",
+                    id,
+                    chess_ai::EVAL_PROFILE_NAME,
+                    chess_ai::profile_hash()
+                )
+                .unwrap();
+            }
             _ => {
                 writeln!(out, "{{\"id\":\"{}\",\"ok\":false,\"error\":\"unknown cmd\"}}", id).unwrap();
             }

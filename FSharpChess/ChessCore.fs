@@ -493,6 +493,127 @@ let private piecePST (p: char) : int[,] =
     | 'K' -> kingPST
     | _ -> kingPST
 
+// ---------------------------- 评估风格档（Tier 2-C 批1 试点） ----------------------------
+// 每引擎一份独立 profile，定义新增评估术语的权重。所有术语都是白黑严格镜像差值，
+// 因此初始局面（完全对称）评估仍为 0。mobilityWeight 为预留字段（0 = 关闭）。
+// 权重表规范源在 tournament/validate_eval_profile.mjs，本档必须与其逐字段一致。
+// 字段顺序与 evalProfileHash 的规范化串即契约。
+type EvalProfileSpec = {
+    Name: string
+    PawnShieldMissing: int  // 王处于老家（白 r>=6 / 黑 r<=1）时，王前 3 格每缺一兵
+    PawnShieldOpenFile: int // 王自家线在王前方已无任何己方兵
+    DoubledPawn: int        // 每个叠兵（同线多出的每一个）
+    IsolatedPawn: int       // 每个孤兵（相邻线无己方兵）
+    PassedPawnBase: int     // 通路兵基础分
+    PassedPawnPerRank: int  // 通路兵每向升变推进一行的加成
+    BishopPair: int         // 双象
+    MobilityWeight: int     // 预留：机动性每步权重（试点关闭）
+}
+
+let evalProfile = {
+    Name = "passer"
+    PawnShieldMissing = 10
+    PawnShieldOpenFile = 6
+    DoubledPawn = 8
+    IsolatedPawn = 10
+    PassedPawnBase = 35
+    PassedPawnPerRank = 14
+    BishopPair = 20
+    MobilityWeight = 0
+}
+
+// profile 规范化串 "name|w1|...|w8"（整数无空格）的 djb2-32。验收门
+// （validate_eval_profile.mjs）用同一算法独立重算并比对，防止「声明 A 档、实装别的数字」。
+let evalProfileHash () =
+    let s = sprintf "%s|%d|%d|%d|%d|%d|%d|%d|%d"
+                evalProfile.Name evalProfile.PawnShieldMissing evalProfile.PawnShieldOpenFile
+                evalProfile.DoubledPawn evalProfile.IsolatedPawn evalProfile.PassedPawnBase
+                evalProfile.PassedPawnPerRank evalProfile.BishopPair evalProfile.MobilityWeight
+    let mutable h = 5381u
+    for b in Encoding.UTF8.GetBytes s do
+        h <- h * 33u + uint32 b
+    sprintf "%08x" h
+
+// ---------------------------- Tier 2-C 风格术语（白黑镜像差值） ----------------------------
+
+// 兵形分（白方视角差值）：叠兵 / 孤兵 / 通路兵。白方项减、黑方项加（负向项）。
+let pawnStructureScore (state: GameState) =
+    let b = state.Board
+    let wCnt = Array.zeroCreate 8
+    let bCnt = Array.zeroCreate 8
+    let wPawns = ResizeArray<int * int>()
+    let bPawns = ResizeArray<int * int>()
+    for r in 0..7 do
+        for c in 0..7 do
+            match b.[r, c] with
+            | 'P' -> wCnt.[c] <- wCnt.[c] + 1; wPawns.Add(r, c)
+            | 'p' -> bCnt.[c] <- bCnt.[c] + 1; bPawns.Add(r, c)
+            | _ -> ()
+    let mutable score = 0
+    for c in 0..7 do
+        if wCnt.[c] > 1 then score <- score - evalProfile.DoubledPawn * (wCnt.[c] - 1)
+        if bCnt.[c] > 1 then score <- score + evalProfile.DoubledPawn * (bCnt.[c] - 1)
+    for (r, c) in wPawns do
+        // 孤兵：左右相邻线均无己方兵
+        if (c = 0 || wCnt.[c - 1] = 0) && (c = 7 || wCnt.[c + 1] = 0) then
+            score <- score - evalProfile.IsolatedPawn
+        // 通路兵：同线与相邻线在自己前方（白 r-1..0 / 黑 r+1..7）无任何敌方兵
+        let mutable passed = true
+        for f in (max 0 (c - 1)) .. (min 7 (c + 1)) do
+            for rr in 0 .. r - 1 do
+                if b.[rr, f] = 'p' then passed <- false
+        if passed then score <- score + evalProfile.PassedPawnBase + evalProfile.PassedPawnPerRank * (6 - r)
+    for (r, c) in bPawns do
+        if (c = 0 || bCnt.[c - 1] = 0) && (c = 7 || bCnt.[c + 1] = 0) then
+            score <- score + evalProfile.IsolatedPawn
+        let mutable passed = true
+        for f in (max 0 (c - 1)) .. (min 7 (c + 1)) do
+            for rr in r + 1 .. 7 do
+                if b.[rr, f] = 'P' then passed <- false
+        if passed then score <- score - (evalProfile.PassedPawnBase + evalProfile.PassedPawnPerRank * (r - 1))
+    score
+
+// 王安全分（白方视角差值）：王在老家（白 r>=6 / 黑 r<=1）时检查兵盾与敞开线。
+let kingSafetyScore (state: GameState) =
+    let b = state.Board
+    let (wr, wc) = findKing b true
+    let (br, bc) = findKing b false
+    if wr < 0 || br < 0 then 0
+    else
+        let mutable score = 0
+        if wr >= 6 then
+            // 王前方一行 3 格（王列 ±1，越界跳过）每缺一己方兵
+            for c in (max 0 (wc - 1)) .. (min 7 (wc + 1)) do
+                if b.[wr - 1, c] <> 'P' then score <- score - evalProfile.PawnShieldMissing
+            // 王自家线在王前方无任何己方兵
+            let mutable shielded = false
+            for r in 0 .. wr - 1 do
+                if b.[r, wc] = 'P' then shielded <- true
+            if not shielded then score <- score - evalProfile.PawnShieldOpenFile
+        if br <= 1 then
+            for c in (max 0 (bc - 1)) .. (min 7 (bc + 1)) do
+                if b.[br + 1, c] <> 'p' then score <- score + evalProfile.PawnShieldMissing
+            let mutable shielded = false
+            for r in br + 1 .. 7 do
+                if b.[r, bc] = 'p' then shielded <- true
+            if not shielded then score <- score + evalProfile.PawnShieldOpenFile
+        score
+
+// 双象分（白方视角差值）。
+let bishopPairScore (state: GameState) =
+    let mutable wBish = 0
+    let mutable bBish = 0
+    for r in 0..7 do
+        for c in 0..7 do
+            match state.Board.[r, c] with
+            | 'B' -> wBish <- wBish + 1
+            | 'b' -> bBish <- bBish + 1
+            | _ -> ()
+    let mutable score = 0
+    if wBish >= 2 then score <- score + evalProfile.BishopPair
+    if bBish >= 2 then score <- score - evalProfile.BishopPair
+    score
+
 let evaluate (state: GameState) =
     let mutable score = 0
     for r in 0..7 do
@@ -506,6 +627,11 @@ let evaluate (state: GameState) =
                 let pv = tbl.[pr, c]
                 if isWhite then score <- score + v + pv
                 else score <- score - v - pv
+    // Tier 2-C 风格术语：白黑镜像差值（白方项加、黑方项减），
+    // 保持「初始局面评估 = 0」的对称性不变量。
+    score <- score + pawnStructureScore state
+    score <- score + kingSafetyScore state
+    score <- score + bishopPairScore state
     // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
     match state.RepHistory with
     | Some rep ->

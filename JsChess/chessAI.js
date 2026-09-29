@@ -21,6 +21,34 @@ const PieceValue = [0, 100, 320, 330, 500, 900, 0];
 // 扣分（白方视角）。引导搜索远离重复局面，减少三重复和棋。约半兵，足以影响平手选择而不弃子。
 const REPETITION_PENALTY = 60;
 
+// ---------------------------- 评估风格档（Tier 2-C 批1 试点） ----------------------------
+// 每引擎一份独立 profile，定义新增评估术语的权重。所有术语都是白黑严格镜像差值，
+// 因此初始局面（完全对称）评估仍为 0 —— tests.js「初始局面评估 = 0（对称）」保持成立。
+// mobilityWeight 为预留字段（0 = 关闭），试点只启用兵盾/兵形/双象三组术语。
+// 权重表规范源在 tournament/validate_eval_profile.mjs，本档必须与其逐字段一致。
+const EVAL_PROFILE = {
+    name: 'aggressive',
+    pawnShieldMissing: 30,   // 王处于老家（白 r>=6 / 黑 r<=1）时，王前 3 格每缺一兵
+    pawnShieldOpenFile: 20,  // 王自家线在王前方已无任何己方兵
+    doubledPawn: 8,          // 每个叠兵（同线多出的每一个）
+    isolatedPawn: 10,        // 每个孤兵（相邻线无己方兵）
+    passedPawnBase: 15,      // 通路兵基础分
+    passedPawnPerRank: 6,    // 通路兵每向升变推进一行的加成
+    bishopPair: 20,          // 双象
+    mobilityWeight: 0        // 预留：机动性每步权重（试点关闭）
+};
+
+// profile 规范化串 + djb2-32 哈希。验收门（validate_eval_profile.mjs）用同一算法
+// 独立重算并比对，防止「声明 A 档、实装别的数字」的漂移。字段顺序与分隔符即契约。
+function evalProfileHash(p) {
+    const s = `${p.name}|${p.pawnShieldMissing}|${p.pawnShieldOpenFile}|${p.doubledPawn}` +
+              `|${p.isolatedPawn}|${p.passedPawnBase}|${p.passedPawnPerRank}` +
+              `|${p.bishopPair}|${p.mobilityWeight}`;
+    let h = 5381 >>> 0;
+    for (let i = 0; i < s.length; i++) h = (Math.imul(h, 33) + s.charCodeAt(i)) >>> 0;
+    return h.toString(16).padStart(8, '0');
+}
+
 // ---------------------------- 位置价值表 PST（白方视角） ----------------------------
 const PST_Pawn = [
     0,  0,  0,  0,  0,  0,  0,  0,
@@ -129,12 +157,108 @@ export class AIEngine {
                 }
             }
         }
+        // Tier 2-C 风格术语：白黑镜像差值（白方项加、黑方项减），
+        // 保持「初始局面评估 = 0」的对称性不变量。
+        score += AIEngine.PawnStructureScore(state);
+        score += AIEngine.KingSafetyScore(state);
+        score += AIEngine.BishopPairScore(state);
         // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
         if (state.RepHistory) {
             const key = state.PositionKeySimple();
             const cnt = state.RepHistory[key];
             if (cnt) score -= REPETITION_PENALTY * cnt;
         }
+        return score;
+    }
+
+    static get ProfileName() { return EVAL_PROFILE.name; }
+    static get ProfileHash() { return evalProfileHash(EVAL_PROFILE); }
+
+    // 兵形分（白方视角差值）：叠兵 / 孤兵 / 通路兵。
+    static PawnStructureScore(state) {
+        const b = state.board;
+        const wCnt = [0, 0, 0, 0, 0, 0, 0, 0];
+        const bCnt = [0, 0, 0, 0, 0, 0, 0, 0];
+        const wPawns = [];
+        const bPawns = [];
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                if (b[r][c] === 'P') { wCnt[c]++; wPawns.push([r, c]); }
+                else if (b[r][c] === 'p') { bCnt[c]++; bPawns.push([r, c]); }
+            }
+        }
+        const W = EVAL_PROFILE;
+        let score = 0;
+        for (let c = 0; c < 8; c++) {
+            if (wCnt[c] > 1) score -= W.doubledPawn * (wCnt[c] - 1);
+            if (bCnt[c] > 1) score += W.doubledPawn * (bCnt[c] - 1);
+        }
+        for (const [r, c] of wPawns) {
+            const isolated = (c === 0 || wCnt[c - 1] === 0) && (c === 7 || wCnt[c + 1] === 0);
+            if (isolated) score -= W.isolatedPawn;
+            let passed = true;
+            for (let f = c - 1; f <= c + 1 && passed; f++) {
+                if (f < 0 || f > 7) continue;
+                for (let rr = r - 1; rr >= 0; rr--)
+                    if (b[rr][f] === 'p') { passed = false; break; }
+            }
+            if (passed) score += W.passedPawnBase + W.passedPawnPerRank * (6 - r);
+        }
+        for (const [r, c] of bPawns) {
+            const isolated = (c === 0 || bCnt[c - 1] === 0) && (c === 7 || bCnt[c + 1] === 0);
+            if (isolated) score += W.isolatedPawn;
+            let passed = true;
+            for (let f = c - 1; f <= c + 1 && passed; f++) {
+                if (f < 0 || f > 7) continue;
+                for (let rr = r + 1; rr <= 7; rr++)
+                    if (b[rr][f] === 'P') { passed = false; break; }
+            }
+            if (passed) score -= W.passedPawnBase + W.passedPawnPerRank * (r - 1);
+        }
+        return score;
+    }
+
+    // 王安全分（白方视角差值）：王在老家（白 r>=6 / 黑 r<=1）时检查兵盾与敞开线。
+    static KingSafetyScore(state) {
+        const b = state.board;
+        let wk = null, bk = null;
+        for (let r = 0; r < 8; r++)
+            for (let c = 0; c < 8; c++) {
+                if (b[r][c] === 'K') wk = [r, c];
+                else if (b[r][c] === 'k') bk = [r, c];
+            }
+        if (!wk || !bk) return 0;
+        const W = EVAL_PROFILE;
+        let score = 0;
+        if (wk[0] >= 6) {
+            for (let c = Math.max(0, wk[1] - 1); c <= Math.min(7, wk[1] + 1); c++)
+                if (b[wk[0] - 1][c] !== 'P') score -= W.pawnShieldMissing;
+            let shielded = false;
+            for (let r = wk[0] - 1; r >= 0; r--) if (b[r][wk[1]] === 'P') { shielded = true; break; }
+            if (!shielded) score -= W.pawnShieldOpenFile;
+        }
+        if (bk[0] <= 1) {
+            for (let c = Math.max(0, bk[1] - 1); c <= Math.min(7, bk[1] + 1); c++)
+                if (b[bk[0] + 1][c] !== 'p') score += W.pawnShieldMissing;
+            let shielded = false;
+            for (let r = bk[0] + 1; r <= 7; r++) if (b[r][bk[1]] === 'p') { shielded = true; break; }
+            if (!shielded) score += W.pawnShieldOpenFile;
+        }
+        return score;
+    }
+
+    // 双象分（白方视角差值）。
+    static BishopPairScore(state) {
+        let wb = 0, bb = 0;
+        const b = state.board;
+        for (let r = 0; r < 8; r++)
+            for (let c = 0; c < 8; c++) {
+                if (b[r][c] === 'B') wb++;
+                else if (b[r][c] === 'b') bb++;
+            }
+        let score = 0;
+        if (wb >= 2) score += EVAL_PROFILE.bishopPair;
+        if (bb >= 2) score -= EVAL_PROFILE.bishopPair;
         return score;
     }
 

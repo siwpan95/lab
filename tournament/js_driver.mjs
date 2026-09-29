@@ -89,6 +89,10 @@ function main() {
           // Read-only verification aid: returns the engine.mjs-compatible key of the
           // requested FEN. Not used by the tournament runner.
           process.stdout.write(JSON.stringify({ id, ok: true, key: gs.PositionKeySimple() }) + '\n');
+        } else if (cmd === 'evalProfile') {
+          // Read-only verification aid: returns this engine's Tier 2-C eval profile
+          // name and its djb2-32 hash (same algorithm as the validation harness).
+          process.stdout.write(JSON.stringify({ id, ok: true, profile: AIEngine.ProfileName, hash: AIEngine.ProfileHash }) + '\n');
         } else {
           process.stdout.write(JSON.stringify({ id, ok: false, error: 'unknown cmd' }) + '\n');
         }

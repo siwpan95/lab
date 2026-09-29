@@ -6,7 +6,10 @@
 
 package main
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+)
 
 // ---------------------------- 常量 ----------------------------
 const (
@@ -18,6 +21,47 @@ const (
 	// 又不至于让引擎为了避重而白白弃子。
 	RepetitionPenalty = 60
 )
+
+// ---------------------------- 评估风格档（Tier 2-C 批1 试点） ----------------------------
+// 与 JsChess/chessAI.js 的 EVAL_PROFILE 同构：每引擎一份独立 profile，术语全部是
+// 白黑严格镜像差值（初始对称局面评估仍为 0）。字段顺序与 ProfileHash 的规范化串即契约，
+// 验收门 tournament/validate_eval_profile.mjs 用同一 djb2-32 算法独立重算比对。
+type EvalProfileSpec struct {
+	Name               string
+	PawnShieldMissing  int // 王处于老家（白 r>=6 / 黑 r<=1）时，王前 3 格每缺一兵
+	PawnShieldOpenFile int // 王自家线在王前方已无任何己方兵
+	DoubledPawn        int // 每个叠兵（同线多出的每一个）
+	IsolatedPawn       int // 每个孤兵（相邻线无己方兵）
+	PassedPawnBase     int // 通路兵基础分
+	PassedPawnPerRank  int // 通路兵每向升变推进一行的加成
+	BishopPair         int // 双象
+	MobilityWeight     int // 预留：机动性每步权重（试点关闭）
+}
+
+var EvalProfile = EvalProfileSpec{
+	Name:               "balanced",
+	PawnShieldMissing:  18,
+	PawnShieldOpenFile: 12,
+	DoubledPawn:        12,
+	IsolatedPawn:       15,
+	PassedPawnBase:     20,
+	PassedPawnPerRank:  8,
+	BishopPair:         30,
+	MobilityWeight:     0,
+}
+
+// ProfileHash：profile 规范化串的 djb2-32，与 JS 侧 evalProfileHash 逐字节同算法。
+func ProfileHash() string {
+	s := fmt.Sprintf("%s|%d|%d|%d|%d|%d|%d|%d|%d",
+		EvalProfile.Name, EvalProfile.PawnShieldMissing, EvalProfile.PawnShieldOpenFile,
+		EvalProfile.DoubledPawn, EvalProfile.IsolatedPawn, EvalProfile.PassedPawnBase,
+		EvalProfile.PassedPawnPerRank, EvalProfile.BishopPair, EvalProfile.MobilityWeight)
+	h := uint32(5381)
+	for i := 0; i < len(s); i++ {
+		h = h*33 + uint32(s[i])
+	}
+	return fmt.Sprintf("%08x", h)
+}
 
 // ---------------------------- 子力价值（厘兵单位） ----------------------------
 // 索引：0=空 1=兵 2=马 3=象 4=车 5=后 6=王
@@ -147,11 +191,175 @@ func Evaluate(state *GameState) int {
 			}
 		}
 	}
+	// Tier 2-C 风格术语：白黑镜像差值（白方项加、黑方项减），
+	// 保持「初始局面评估 = 0」的对称性不变量。
+	score += PawnStructureScore(state)
+	score += KingSafetyScore(state)
+	score += BishopPairScore(state)
 	// 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
 	if state.RepHistory != nil {
 		if cnt, ok := state.RepHistory[state.PositionKeySimple()]; ok && cnt > 0 {
 			score -= RepetitionPenalty * cnt
 		}
+	}
+	return score
+}
+
+// ---------------------------- Tier 2-C 风格术语（白黑镜像差值） ----------------------------
+
+// PawnStructureScore 兵形分（白方视角差值）：叠兵 / 孤兵 / 通路兵。
+func PawnStructureScore(state *GameState) int {
+	var wCnt, bCnt [8]int
+	var wPawns, bPawns [][2]int
+	for r := 0; r < 8; r++ {
+		for c := 0; c < 8; c++ {
+			switch state.Board[r][c] {
+			case 'P':
+				wCnt[c]++
+				wPawns = append(wPawns, [2]int{r, c})
+			case 'p':
+				bCnt[c]++
+				bPawns = append(bPawns, [2]int{r, c})
+			}
+		}
+	}
+	W := EvalProfile
+	score := 0
+	for c := 0; c < 8; c++ {
+		if wCnt[c] > 1 {
+			score -= W.DoubledPawn * (wCnt[c] - 1)
+		}
+		if bCnt[c] > 1 {
+			score += W.DoubledPawn * (bCnt[c] - 1)
+		}
+	}
+	for _, pc := range wPawns {
+		r, c := pc[0], pc[1]
+		if (c == 0 || wCnt[c-1] == 0) && (c == 7 || wCnt[c+1] == 0) {
+			score -= W.IsolatedPawn
+		}
+		passed := true
+		for f := c - 1; f <= c+1 && passed; f++ {
+			if f < 0 || f > 7 {
+				continue
+			}
+			for rr := r - 1; rr >= 0; rr-- {
+				if state.Board[rr][f] == 'p' {
+					passed = false
+					break
+				}
+			}
+		}
+		if passed {
+			score += W.PassedPawnBase + W.PassedPawnPerRank*(6-r)
+		}
+	}
+	for _, pc := range bPawns {
+		r, c := pc[0], pc[1]
+		if (c == 0 || bCnt[c-1] == 0) && (c == 7 || bCnt[c+1] == 0) {
+			score += W.IsolatedPawn
+		}
+		passed := true
+		for f := c - 1; f <= c+1 && passed; f++ {
+			if f < 0 || f > 7 {
+				continue
+			}
+			for rr := r + 1; rr <= 7; rr++ {
+				if state.Board[rr][f] == 'P' {
+					passed = false
+					break
+				}
+			}
+		}
+		if passed {
+			score -= W.PassedPawnBase + W.PassedPawnPerRank*(r-1)
+		}
+	}
+	return score
+}
+
+// KingSafetyScore 王安全分（白方视角差值）：王在老家（白 r>=6 / 黑 r<=1）时检查兵盾与敞开线。
+func KingSafetyScore(state *GameState) int {
+	var wk, bk [2]int
+	hasW, hasB := false, false
+	for r := 0; r < 8; r++ {
+		for c := 0; c < 8; c++ {
+			if state.Board[r][c] == 'K' {
+				wk = [2]int{r, c}
+				hasW = true
+			} else if state.Board[r][c] == 'k' {
+				bk = [2]int{r, c}
+				hasB = true
+			}
+		}
+	}
+	if !hasW || !hasB {
+		return 0
+	}
+	W := EvalProfile
+	score := 0
+	if wk[0] >= 6 {
+		for c := wk[1] - 1; c <= wk[1]+1; c++ {
+			if c < 0 || c > 7 {
+				continue
+			}
+			if state.Board[wk[0]-1][c] != 'P' {
+				score -= W.PawnShieldMissing
+			}
+		}
+		shielded := false
+		for r := wk[0] - 1; r >= 0; r-- {
+			if state.Board[r][wk[1]] == 'P' {
+				shielded = true
+				break
+			}
+		}
+		if !shielded {
+			score -= W.PawnShieldOpenFile
+		}
+	}
+	if bk[0] <= 1 {
+		for c := bk[1] - 1; c <= bk[1]+1; c++ {
+			if c < 0 || c > 7 {
+				continue
+			}
+			if state.Board[bk[0]+1][c] != 'p' {
+				score += W.PawnShieldMissing
+			}
+		}
+		shielded := false
+		for r := bk[0] + 1; r <= 7; r++ {
+			if state.Board[r][bk[1]] == 'p' {
+				shielded = true
+				break
+			}
+		}
+		if !shielded {
+			score += W.PawnShieldOpenFile
+		}
+	}
+	return score
+}
+
+// BishopPairScore 双象分（白方视角差值）。
+func BishopPairScore(state *GameState) int {
+	wb, bb := 0, 0
+	for r := 0; r < 8; r++ {
+		for c := 0; c < 8; c++ {
+			switch state.Board[r][c] {
+			case 'B':
+				wb++
+			case 'b':
+				bb++
+			}
+		}
+	}
+	score := 0
+	if wb >= 2 {
+		score += EvalProfile.BishopPair
+	}
+	if bb >= 2 {
+		score -= EvalProfile.BishopPair
 	}
 	return score
 }

@@ -24,6 +24,34 @@ namespace ChessEngine
         // 影响平手选择又不至于为避重而弃子。对齐 go/js 的 RepetitionPenalty=60。
         public const int RepetitionPenalty = 60;
 
+        // ---------------------------- 评估风格档（Tier 2-C 批1 试点） ----------------------------
+        // 与 JsChess/chessAI.js 的 EVAL_PROFILE、chess-cordis drivers/go 的 EvalProfileSpec
+        // 同构：每引擎一份独立 profile，术语全部是白黑严格镜像差值（初始对称局面评估仍为 0）。
+        // 字段顺序与 ProfileHash 的规范化串即契约，验收门 tournament/validate_eval_profile.mjs
+        // 用同一 djb2-32 算法独立重算比对。
+        public const string ProfileName = "kingsafety";
+        public const int PawnShieldMissing = 35;  // 王处于老家（白 r>=6 / 黑 r<=1）时，王前 3 格每缺一兵
+        public const int PawnShieldOpenFile = 25; // 王自家线在王前方已无任何己方兵
+        public const int DoubledPawn = 10;        // 每个叠兵（同线多出的每一个）
+        public const int IsolatedPawn = 12;       // 每个孤兵（相邻线无己方兵）
+        public const int PassedPawnBase = 15;     // 通路兵基础分
+        public const int PassedPawnPerRank = 5;   // 通路兵每向升变推进一行的加成
+        public const int BishopPair = 15;         // 双象
+        public const int MobilityWeight = 0;      // 预留：机动性每步权重（试点关闭）
+
+        // ProfileHash：profile 规范化串的 djb2-32，与 JS 侧 evalProfileHash 逐字节同算法。
+        // 规范化串 "kingsafety|35|25|10|12|15|5|15|0"（整数无空格），期望 hash = 28fa8b3e。
+        public static string ProfileHash()
+        {
+            string s = ProfileName + "|" + PawnShieldMissing + "|" + PawnShieldOpenFile +
+                       "|" + DoubledPawn + "|" + IsolatedPawn + "|" + PassedPawnBase +
+                       "|" + PassedPawnPerRank + "|" + BishopPair + "|" + MobilityWeight;
+            uint h = 5381u;
+            foreach (byte b in System.Text.Encoding.ASCII.GetBytes(s))
+                h = h * 33 + b; // 自然回绕
+            return h.ToString("x8");
+        }
+
         // ---------------------------- 子力价值（厘兵单位） ----------------------------
         // 索引：0=空 1=兵 2=马 3=象 4=车 5=后 6=王
         public static readonly int[] PieceValue = { 0, 100, 320, 330, 500, 900, 0 };
@@ -142,6 +170,11 @@ namespace ChessEngine
                     }
                 }
             }
+            // Tier 2-C 风格术语：白黑镜像差值（白方项加、黑方项减），
+            // 保持「初始局面评估 = 0」的对称性不变量。
+            score += PawnStructureScore(state);
+            score += KingSafetyScore(state);
+            score += BishopPairScore(state);
             // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
             if (state.RepHistory != null)
             {
@@ -151,6 +184,116 @@ namespace ChessEngine
                     score -= RepetitionPenalty * cnt;
                 }
             }
+            return score;
+        }
+
+        // ---------------------------- Tier 2-C 风格术语（白黑镜像差值） ----------------------------
+
+        // 兵形分（白方视角差值）：叠兵 / 孤兵 / 通路兵。
+        public static int PawnStructureScore(GameState state)
+        {
+            char[,] b = state.Board;
+            int[] wCnt = new int[8];
+            int[] bCnt = new int[8];
+            List<(int r, int c)> wPawns = new List<(int, int)>();
+            List<(int r, int c)> bPawns = new List<(int, int)>();
+            for (int r = 0; r < 8; ++r)
+            {
+                for (int c = 0; c < 8; ++c)
+                {
+                    if (b[r, c] == 'P') { wCnt[c]++; wPawns.Add((r, c)); }
+                    else if (b[r, c] == 'p') { bCnt[c]++; bPawns.Add((r, c)); }
+                }
+            }
+            int score = 0;
+            for (int c = 0; c < 8; ++c)
+            {
+                if (wCnt[c] > 1) score -= DoubledPawn * (wCnt[c] - 1);
+                if (bCnt[c] > 1) score += DoubledPawn * (bCnt[c] - 1);
+            }
+            foreach ((int r, int c) in wPawns)
+            {
+                bool isolated = (c == 0 || wCnt[c - 1] == 0) && (c == 7 || wCnt[c + 1] == 0);
+                if (isolated) score -= IsolatedPawn;
+                bool passed = true;
+                for (int f = c - 1; f <= c + 1 && passed; ++f)
+                {
+                    if (f < 0 || f > 7) continue;
+                    for (int rr = r - 1; rr >= 0; --rr)
+                        if (b[rr, f] == 'p') { passed = false; break; }
+                }
+                if (passed) score += PassedPawnBase + PassedPawnPerRank * (6 - r);
+            }
+            foreach ((int r, int c) in bPawns)
+            {
+                bool isolated = (c == 0 || bCnt[c - 1] == 0) && (c == 7 || bCnt[c + 1] == 0);
+                if (isolated) score += IsolatedPawn;
+                bool passed = true;
+                for (int f = c - 1; f <= c + 1 && passed; ++f)
+                {
+                    if (f < 0 || f > 7) continue;
+                    for (int rr = r + 1; rr <= 7; ++rr)
+                        if (b[rr, f] == 'P') { passed = false; break; }
+                }
+                if (passed) score -= PassedPawnBase + PassedPawnPerRank * (r - 1);
+            }
+            return score;
+        }
+
+        // 王安全分（白方视角差值）：王在老家（白 r>=6 / 黑 r<=1）时检查兵盾与敞开线。
+        public static int KingSafetyScore(GameState state)
+        {
+            char[,] b = state.Board;
+            int wkR = -1, wkC = -1, bkR = -1, bkC = -1;
+            for (int r = 0; r < 8; ++r)
+                for (int c = 0; c < 8; ++c)
+                {
+                    if (b[r, c] == 'K') { wkR = r; wkC = c; }
+                    else if (b[r, c] == 'k') { bkR = r; bkC = c; }
+                }
+            if (wkR < 0 || bkR < 0) return 0;
+            int score = 0;
+            if (wkR >= 6)
+            {
+                for (int c = wkC - 1; c <= wkC + 1; ++c)
+                {
+                    if (c < 0 || c > 7) continue;
+                    if (b[wkR - 1, c] != 'P') score -= PawnShieldMissing;
+                }
+                bool shielded = false;
+                for (int r = wkR - 1; r >= 0; --r)
+                    if (b[r, wkC] == 'P') { shielded = true; break; }
+                if (!shielded) score -= PawnShieldOpenFile;
+            }
+            if (bkR <= 1)
+            {
+                for (int c = bkC - 1; c <= bkC + 1; ++c)
+                {
+                    if (c < 0 || c > 7) continue;
+                    if (b[bkR + 1, c] != 'p') score += PawnShieldMissing;
+                }
+                bool shielded = false;
+                for (int r = bkR + 1; r <= 7; ++r)
+                    if (b[r, bkC] == 'p') { shielded = true; break; }
+                if (!shielded) score += PawnShieldOpenFile;
+            }
+            return score;
+        }
+
+        // 双象分（白方视角差值）。
+        public static int BishopPairScore(GameState state)
+        {
+            char[,] b = state.Board;
+            int wb = 0, bb = 0;
+            for (int r = 0; r < 8; ++r)
+                for (int c = 0; c < 8; ++c)
+                {
+                    if (b[r, c] == 'B') ++wb;
+                    else if (b[r, c] == 'b') ++bb;
+                }
+            int score = 0;
+            if (wb >= 2) score += BishopPair;
+            if (bb >= 2) score -= BishopPair;
             return score;
         }
 

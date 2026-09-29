@@ -223,6 +223,10 @@ Module Driver
                     ElseIf cmd = "positionKey" Then
                         ' 只读校验辅助：返回所请求 FEN 的 engine.mjs 兼容键。
                         outLine("{""id"":""" & esc(id) & """,""ok"":true,""key"":""" & esc(state.PositionKeySimple()) & """}")
+                    ElseIf cmd = "evalProfile" Then
+                        ' 只读校验辅助：返回本引擎的 Tier 2-C 评估档名与 djb2-32 哈希
+                        ' （与验收门 tournament/validate_eval_profile.mjs 同算法）。
+                        outLine("{""id"":""" & esc(id) & """,""ok"":true,""profile"":""" & esc(AIEngine.ProfileName()) & """,""hash"":""" & esc(AIEngine.ProfileHash()) & """}")
                     Else
                         outLine("{""id"":""" & esc(id) & """,""ok"":false,""error"":""unknown cmd""}")
                     End If

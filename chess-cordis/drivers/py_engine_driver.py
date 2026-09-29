@@ -11,7 +11,7 @@ import json
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(_REPO_ROOT, "PyChess"))
 from chess_core import GameState, Rules
-from chess_ai import AIEngine
+from chess_ai import AIEngine, EVAL_PROFILE, eval_profile_hash
 
 
 def from_fen(fen: str) -> GameState:
@@ -116,6 +116,13 @@ def main() -> None:
             elif cmd == "positionKey":
                 # 只读校验辅助：返回所请求 FEN 的 engine.mjs 兼容局面键。
                 print(json.dumps({"id": rid, "ok": True, "key": state.position_key_simple()}), flush=True)
+            elif cmd == "evalProfile":
+                # 只读校验辅助：返回本引擎的 Tier 2-C 评估风格档名及其 djb2-32 哈希
+                # （与 harness 侧同算法）。紧凑分隔符以匹配验收门的应答解析。
+                print(json.dumps({"id": rid, "ok": True,
+                                  "profile": EVAL_PROFILE["name"],
+                                  "hash": eval_profile_hash(EVAL_PROFILE)},
+                                 separators=(",", ":")), flush=True)
             else:
                 print(json.dumps({"id": rid, "ok": False, "error": "unknown cmd"}), flush=True)
         except Exception as e:

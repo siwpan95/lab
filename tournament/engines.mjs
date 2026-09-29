@@ -153,7 +153,12 @@ export const ENGINES = [
     id: 'fs', language: 'F#', enabled: true,
     cmd: DOTNET,
     args: [repo('chess-cordis', 'drivers', 'fsharp', 'bin', 'Release', 'net8.0', 'FSharpChessDriver.dll')],
-    timeout: 60000,
+    // F# runs on the .NET JIT and its search is not move-ordered, so depth-4 can
+    // take ~50s on sharp positions. The pruning fix (2026-09-29) removed the
+    // always-timeout bug; this wider ceiling is just headroom so an honest slow
+    // move can't be misread as a crash. (python already uses 180000 for the same
+    // reason.)
+    timeout: 120000,
   },
   // ---- Java : JDK 21 (java from PATH, or LAB_JAVA); JavaChess core compiled to out/ ----
   {

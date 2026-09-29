@@ -483,14 +483,18 @@ let rec quiescence (state: GameState) alpha beta qdepth =
     elif qdepth <= 0 then stand
     else
         let mutable best = stand
-        let captures = generateAllLegalMoves state |> Seq.filter (fun m -> m.Captured <> '.')
-        for m in captures do
+        let capturesArr = generateAllLegalMoves state |> Seq.filter (fun m -> m.Captured <> '.') |> Array.ofSeq
+        let mutable i = 0
+        let mutable cut = false
+        while i < capturesArr.Length && not cut do
+            let m = capturesArr.[i]
             let ns = state.CloneLight()
             applyMove ns m false
             let score = -quiescence ns (-beta) (-a) (qdepth - 1)
             if score > best then best <- score
-            if score > a then a <- score
-            if a >= beta then ()
+            if best > a then a <- best
+            if a >= beta then cut <- true
+            i <- i + 1
         best
 
 let rec negamax (state: GameState) depth alpha beta =
@@ -500,15 +504,24 @@ let rec negamax (state: GameState) depth alpha beta =
     elif depth = 0 then
         quiescence state alpha beta 4
     else
+        // Alpha-beta beta-cutoff. F#'s `for` loop has no `break`, so the original
+        // `if a >= beta then ()` was a no-op and the tree was never pruned — which
+        // made F# orders of magnitude slower than the pruned engines and blew past
+        // the 60s per-move RPC timeout at depth 4. Use an explicit while-loop with
+        // a `cut` flag to actually stop searching this node once it's refuted.
         let mutable best = -2000000
         let mutable a = alpha
-        for m in moves do
+        let mutable i = 0
+        let mutable cut = false
+        while i < moves.Count && not cut do
+            let m = moves.[i]
             let ns = state.CloneLight()
             applyMove ns m false
             let score = -negamax ns (depth - 1) (-beta) (-a)
             if score > best then best <- score
             if best > a then a <- best
-            if a >= beta then ()
+            if a >= beta then cut <- true
+            i <- i + 1
         best
 
 let findBestMove (state: GameState) depth =

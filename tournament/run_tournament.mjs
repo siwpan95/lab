@@ -23,7 +23,7 @@
 //     that game and is killed; its remaining games become forfeit losses so the
 //     whole tournament stays bounded and never hangs on a wedged subprocess.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -278,6 +278,119 @@ function describeGame(game, whiteId, blackId) {
 }
 
 // ---------------------------------------------------------------------------
+// Incremental Markdown report writer (added 2026-09-29).
+//
+// Older versions built the whole report in memory and wrote it ONLY at the very
+// end. A run interrupted mid-way (host process killed, machine sleep, etc.) then
+// left zero output — the first depth-4 run in fact died at 37/90 and produced
+// nothing. Now we write the header up front, append one section per pair as the
+// games finish, and append the leaderboard/footer at the end. A mid-run kill
+// therefore loses at most the in-flight pair, not the entire tournament.
+// ---------------------------------------------------------------------------
+
+// Shared helper: append raw text to the report file.
+function appendToFile(file, text) {
+  appendFileSync(file, text, 'utf8');
+}
+
+// Write the header + environment + participant tables. `totalGames` is known up
+// front (pairs × gamesPerPair) so it goes in the header; the actual total time
+// is only known at the end and is written by reportFooter.
+function writeReportHeader({ reportFile, date, env, participants, disabled, gamesPerPair, depth, totalGames }) {
+  const lines = [];
+  lines.push(`# 跨语言国际象棋循环赛战报`);
+  lines.push('');
+  lines.push(`- **日期**： ${date}`);
+  lines.push(`- **赛制**： 循环赛（round-robin），每对交手 ${gamesPerPair} 局（交换先后手）`);
+  lines.push(`- **搜索深度**： ${depth}（每步）`);
+  lines.push(`- **半步上限**： ${MAX_PLY}（超限判和）`);
+  lines.push(`- **对局总数**： ${totalGames}`);
+  lines.push('');
+  lines.push(`## 环境`);
+  lines.push('');
+  lines.push(`| 项 | 值 |`);
+  lines.push(`| --- | --- |`);
+  lines.push(`| Node | ${env.node} |`);
+  lines.push(`| Python | ${env.python} |`);
+  // 2026-09-28：工作目录原先直接打 process.cwd()，于是报告里出现机器绝对路径。
+  // 改为把仓根替换成 `<repo>`；这不是手工记录，是自动化每次生成报告的产物。
+  lines.push(`| 工作目录 | ${String(env.cwd).replace(dirname(__dirname), '<repo>')} |`);
+  lines.push(`| 操作系统 | ${env.platform} |`);
+  lines.push(`| 规则引擎 | tournament/engine.mjs（perft 黄金值自检通过） |`);
+  lines.push('');
+  lines.push(`## 参赛引擎（${participants.length}）`);
+  lines.push('');
+  lines.push(`| 引擎 | 语言 | 状态 |`);
+  lines.push(`| --- | --- | --- |`);
+  for (const p of participants) {
+    lines.push(`| ${p.id} | ${p.language} | 参赛 |`);
+  }
+  for (const d of disabled) {
+    lines.push(`| ${d.id} | ${d.language} | 未参赛 — ${d.reason} |`);
+  }
+  lines.push('');
+  lines.push(`## 逐对逐局结果`);
+  lines.push('');
+  // Truncate (not append) on the first write so a re-run starts a clean report
+  // instead of stacking onto a previous day's file.
+  writeFileSync(reportFile, lines.join('\n') + '\n', 'utf8');
+}
+
+// Append one pair's games (called as soon as both games of the pair are done).
+function appendPairSection({ reportFile, a, b, participants, pairGames, gamesPerPair }) {
+  const ap = participants.find((x) => x.id === a) || { id: a, language: '?' };
+  const bp = participants.find((x) => x.id === b) || { id: b, language: '?' };
+  const lines = [];
+  lines.push(`### ${ap.id} (${ap.language}) vs ${bp.id} (${bp.language})`);
+  lines.push('');
+  for (let g = 0; g < gamesPerPair; g++) {
+    const whiteId = g % 2 === 0 ? a : b;
+    const blackId = g % 2 === 0 ? b : a;
+    const game = pairGames[g];
+    if (!game) break; // 防御：对局数少于预期时不要越界读
+    const res = describeGame(game, whiteId, blackId);
+    lines.push(`**第 ${g + 1} 局** （${whiteId} 执白， ${blackId} 执黑） — ${res}`);
+    if (game.moves.length) {
+      lines.push('');
+      lines.push('> ' + game.moves.join(' '));
+    }
+    if (game.reason && game.result !== 'draw' && !game.reason.startsWith('checkmate')) {
+      lines.push('');
+      lines.push(`> 注： ${game.reason}`);
+    }
+    lines.push('');
+  }
+  appendToFile(reportFile, lines.join('\n') + '\n');
+}
+
+// Append the leaderboard, anomalies and footer (called once at the end).
+function reportFooter({ reportFile, scores, anomalies, elapsedMs }) {
+  const lines = [];
+  lines.push(`## 总积分榜`);
+  lines.push('');
+  lines.push(`| 排名 | 引擎 | 语言 | 积分 | 胜 | 和 | 负 |`);
+  lines.push(`| --- | --- | --- | ---: | ---: | ---: | ---: |`);
+  let rank = 1;
+  for (const s of scores) {
+    lines.push(`| ${rank} | ${s.id} | ${s.language} | ${s.score.toFixed(1)} | ${s.win} | ${s.draw} | ${s.loss} |`);
+    rank++;
+  }
+  lines.push('');
+  lines.push(`- **总耗时**： ${(elapsedMs / 1000).toFixed(1)} 秒`);
+  lines.push('');
+  if (anomalies.length) {
+    lines.push(`## 异常记录`);
+    lines.push('');
+    for (const a of anomalies) lines.push(`- ${a}`);
+    lines.push('');
+  }
+  lines.push(`---`);
+  lines.push(`*本报告由 \`tournament/run_tournament.mjs\` 自动生成。规则裁决与非法着法校验均由独立规则引擎 \`engine.mjs\` 完成。*`);
+  lines.push('');
+  appendToFile(reportFile, lines.join('\n') + '\n');
+}
+
+// ---------------------------------------------------------------------------
 // Main.
 // ---------------------------------------------------------------------------
 async function main() {
@@ -363,6 +476,18 @@ async function main() {
   let done = 0;
   const total = pairs.length * gamesOverride;
 
+  // --- incremental report: write the header now, append one section per pair,
+  //     finalize (leaderboard + anomalies + total time) at the end. A run killed
+  //     mid-flight therefore still leaves a partial, readable report instead of
+  //     producing nothing (the first depth-4 run died at 37/90 and wrote nothing).
+  mkdirSync(REPORTS_DIR, { recursive: true });
+  const reportFile = join(REPORTS_DIR, `${nowStr().split(' ')[0]}.md`);
+  writeReportHeader({
+    reportFile, date: nowStr(),
+    env: { node: nodeVer, python: pyVer, cwd: process.cwd(), platform: process.platform },
+    participants, disabled, gamesPerPair: gamesOverride, depth: depthOverride, totalGames: total,
+  });
+
   for (const [a, b] of pairs) {
     const aCli = clients.get(a);
     const bCli = clients.get(b);
@@ -414,6 +539,10 @@ async function main() {
       done++;
       log(`  [${done}/${total}] ${whiteId}-${blackId}: ${describeGame(game, whiteId, blackId)} (${game.moves.length} plies)`);
     }
+
+    // append this pair's results to the report as we go (survives a mid-run kill)
+    const pairGames = games.slice(games.length - gamesOverride);
+    appendPairSection({ reportFile, a, b, participants, pairGames, gamesPerPair: gamesOverride });
   }
 
   // Convert any remaining games that involve a now-dead client to forfeits.
@@ -426,21 +555,14 @@ async function main() {
   const scores = [...scoreMap.values()].sort((x, y) =>
     y.score - x.score || y.win - x.win || x.loss - y.loss);
 
-  const { content, file } = writeReport({
-    date: nowStr(),
-    env: { node: nodeVer, python: pyVer, cwd: process.cwd(), platform: process.platform },
-    participants, disabled, pairs, games, scores, anomalies,
-    elapsedMs: Date.now() - startWall, gamesPerPair: gamesOverride, depth: depthOverride,
-  });
-
-  const { mkdirSync, writeFileSync } = await import('node:fs');
-  mkdirSync(REPORTS_DIR, { recursive: true });
-  writeFileSync(file, content, 'utf8');
+  // finalize the report: leaderboard + anomalies + total time (header & per-pair
+  // sections were already written incrementally during the run).
+  reportFooter({ reportFile, scores, anomalies, elapsedMs: Date.now() - startWall });
 
   // --- cleanup ---
   for (const cli of clients.values()) cli.kill();
 
-  log(`[${nowStr()}] tournament done. report: ${file}`);
+  log(`[${nowStr()}] tournament done. report: ${reportFile}`);
   log(`[${nowStr()}] leaderboard:`);
   for (const s of scores) {
     log(`   ${s.id.padEnd(6)} ${s.score.toFixed(1)}  (W${s.win} D${s.draw} L${s.loss})`);

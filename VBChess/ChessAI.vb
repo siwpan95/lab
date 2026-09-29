@@ -30,6 +30,10 @@ Namespace ChessAIEngine
         Public Const MateScore As Integer = 900000
         ' 有界无穷大（VB Integer 取负安全，且须大于 MateScore）
         Private Const Infinity As Integer = 1000000
+        ' 重复惩罚：叶局面的 engine.mjs 兼容键出现在 RepHistory（本局此前见过）中时，按出现
+        ' 次数扣分（白方视角）。引导搜索远离重复局面，减少三重复和棋。约半兵，足以影响平手
+        ' 选择而不弃子。
+        Private Const RepetitionPenalty As Integer = 60
 
         ' ===== 子力价值（厘兵单位） =====
         Private Shared ReadOnly PieceValue As Integer() = New Integer() {0, 100, 320, 330, 500, 900, 0}
@@ -148,6 +152,15 @@ Namespace ChessAIEngine
                     End If
                 Next
             Next
+
+            ' 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
+            If state.RepHistory IsNot Nothing Then
+                Dim key As String = state.PositionKeySimple()
+                Dim cnt As Integer = 0
+                If state.RepHistory.TryGetValue(key, cnt) AndAlso cnt > 0 Then
+                    score -= RepetitionPenalty * cnt
+                End If
+            End If
 
             Return score
         End Function

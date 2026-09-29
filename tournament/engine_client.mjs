@@ -70,7 +70,7 @@ export class EngineClient {
     });
   }
 
-  rpc(cmd, fen, depth) {
+  rpc(cmd, fen, depth, history) {
     return new Promise((resolve, reject) => {
       if (this.dead) return reject(new Error(`${this.cfg.id} is not running`));
       const rid = String(++this.seq);
@@ -80,7 +80,7 @@ export class EngineClient {
       }, this.cfg.timeout || 60000);
       this.pending.set(rid, (msg) => { clearTimeout(timer); resolve(msg); });
       try {
-        this.proc.stdin.write(JSON.stringify({ id: rid, cmd, fen, depth }) + '\n');
+        this.proc.stdin.write(JSON.stringify({ id: rid, cmd, fen, depth, history }) + '\n');
       } catch (e) {
         clearTimeout(timer);
         this.pending.delete(rid);
@@ -89,8 +89,8 @@ export class EngineClient {
     });
   }
 
-  async bestMove(fen, depth) {
-    const r = await this.rpc('bestMove', fen, depth);
+  async bestMove(fen, depth, history) {
+    const r = await this.rpc('bestMove', fen, depth, history);
     if (!r.ok) throw new Error(r.error || 'bestMove failed');
     return r.move; // UCI string or null
   }

@@ -13,7 +13,9 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Driver {
 
@@ -131,6 +133,43 @@ public class Driver {
         return Integer.parseInt(json.substring(start, p));
     }
 
+    // Extract a JSON array of strings (e.g. `"history":["k1","k2"]`). The harness
+    // sends the runner-supplied position keys seen so far; we only need the bare
+    // quoted strings, so a lightweight bracket-tracking scan suffices.
+    static List<String> getStrArray(String json, String key) {
+        List<String> out = new ArrayList<>();
+        String needle = "\"" + key + "\":";
+        int idx = json.indexOf(needle);
+        if (idx < 0) return out;
+        int open = json.indexOf('[', idx + needle.length());
+        if (open < 0) return out;
+        int depth = 1;
+        int p = open + 1;
+        StringBuilder cur = new StringBuilder();
+        boolean inStr = false;
+        while (p < json.length()) {
+            char c = json.charAt(p);
+            if (inStr) {
+                if (c == '\\') {
+                    cur.append(c);
+                    if (p + 1 < json.length()) { cur.append(json.charAt(p + 1)); p++; }
+                } else if (c == '"') {
+                    inStr = false;
+                    out.add(cur.toString());
+                    cur.setLength(0);
+                } else {
+                    cur.append(c);
+                }
+            } else {
+                if (c == '"') inStr = true;
+                else if (c == '[') depth++;
+                else if (c == ']') { depth--; if (depth == 0) break; }
+            }
+            p++;
+        }
+        return out;
+    }
+
     public static void main(String[] args) throws Exception {
         BufferedReader br = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
         System.out.println("{\"ready\":true}");
@@ -152,12 +191,23 @@ public class Driver {
                     int n = Rules.GenerateAllLegalMoves(state).size();
                     System.out.println("{\"id\":\"" + j(id) + "\",\"ok\":true,\"moves\":" + n + "}");
                 } else if (cmd.equals("bestMove")) {
+                    // 用 runner 传来的 history（engine.mjs 局面键）构建重复惩罚查表。
+                    // 空/缺 ⇒ 无惩罚（RepHistory 保持 null）。
+                    List<String> history = getStrArray(line, "history");
+                    if (!history.isEmpty()) {
+                        Map<String,Integer> rep = new HashMap<>();
+                        for (String k : history) rep.put(k, rep.getOrDefault(k, 0) + 1);
+                        state.RepHistory = rep;
+                    }
                     int sd = depth < 1 ? 3 : depth;
                     Move mv = AIEngine.FindBestMove(state, sd);
                     if (mv == null)
                         System.out.println("{\"id\":\"" + j(id) + "\",\"ok\":false,\"error\":\"no legal move\"}");
                     else
                         System.out.println("{\"id\":\"" + j(id) + "\",\"ok\":true,\"move\":\"" + j(moveToUci(mv)) + "\",\"score\":0}");
+                } else if (cmd.equals("positionKey")) {
+                    // 只读校验辅助：返回请求 FEN 的 engine.mjs 兼容键。
+                    System.out.println("{\"id\":\"" + j(id) + "\",\"ok\":true,\"key\":\"" + j(state.PositionKeySimple()) + "\"}");
                 } else {
                     System.out.println("{\"id\":\"" + j(id) + "\",\"ok\":false,\"error\":\"unknown cmd\"}");
                 }

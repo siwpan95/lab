@@ -38,6 +38,7 @@ function fromFen(fen) {
   gs.fullmoveNumber = parts[5] !== undefined ? Number(parts[5]) : 1;
   gs.history = [];
   gs.positionKeys = [];
+  gs.RepHistory = null; // set per-request from the runner's history field
   return gs;
 }
 
@@ -67,8 +68,16 @@ function main() {
       const cmd = req.cmd;
       const fen = req.fen ?? '';
       const depth = req.depth ? Number(req.depth) : 0;
+      const history = Array.isArray(req.history) ? req.history : [];
       try {
         const gs = fromFen(fen);
+        // Build the repetition-penalty lookup from the runner-supplied history
+        // (engine.mjs position keys seen so far). Empty/absent ⇒ no penalty.
+        if (history.length > 0) {
+          const rep = {};
+          for (const k of history) rep[k] = (rep[k] || 0) + 1;
+          gs.RepHistory = rep;
+        }
         if (cmd === 'bestMove') {
           const mv = AIEngine.FindBestMove(gs, depth > 0 ? depth : 3);
           const move = mv ? moveToUci(mv) : null;
@@ -76,6 +85,10 @@ function main() {
         } else if (cmd === 'perft') {
           // reuse engine's own perft for completeness (unused by tournament)
           process.stdout.write(JSON.stringify({ id, ok: true, nodes: -1 }) + '\n');
+        } else if (cmd === 'positionKey') {
+          // Read-only verification aid: returns the engine.mjs-compatible key of the
+          // requested FEN. Not used by the tournament runner.
+          process.stdout.write(JSON.stringify({ id, ok: true, key: gs.PositionKeySimple() }) + '\n');
         } else {
           process.stdout.write(JSON.stringify({ id, ok: false, error: 'unknown cmd' }) + '\n');
         }

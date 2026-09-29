@@ -115,6 +115,9 @@ class GameState:
         self.history: list[str] = []
         # 局面键历史（三次重复判和：棋盘+行棋方+易位权+过路兵格）
         self.positionKeys: list[str] = []
+        # RepHistory：runner 传入的本局已出现局面键（engine.mjs 兼容键）及出现次数，
+        # 用于评估层的重复惩罚。None 表示不惩罚（未提供历史）。搜索过程只读不写。
+        self.rep_history: dict[str, int] | None = None
         self.reset_to_start_position()
 
     def reset_to_start_position(self) -> None:
@@ -156,6 +159,32 @@ class GameState:
             s.append("-1,-1")
         return ''.join(s)
 
+    # 局面键（engine.mjs 兼容）：与 engine.mjs 的 getPositionKey 完全一致。
+    #   · 易位权不加 '-' 分隔符（KQkq 直接拼接，缺失则拼接空串）
+    #   · 过路兵用存储值（enPassantRow/Col），不调用 has_legal_en_passant
+    # runner 传来的重复惩罚比对使用此键，格式必须两端一致，否则惩罚永不触发。
+    def position_key_simple(self) -> str:
+        s = []
+        for r in range(8):
+            for c in range(8):
+                s.append(self.board[r][c])
+        s.append('w' if self.whiteToMove else 'b')
+        if self.canCastleWK:
+            s.append('K')
+        if self.canCastleWQ:
+            s.append('Q')
+        if self.canCastleBK:
+            s.append('k')
+        if self.canCastleBQ:
+            s.append('q')
+        if self.enPassantRow >= 0 and self.enPassantCol >= 0:
+            s.append(str(self.enPassantRow))
+            s.append(',')
+            s.append(str(self.enPassantCol))
+        else:
+            s.append("-1,-1")
+        return ''.join(s)
+
     # 深拷贝（含记谱与局面键）
     def clone(self) -> "GameState":
         s = GameState.__new__(GameState)
@@ -171,6 +200,7 @@ class GameState:
         s.fullmoveNumber = self.fullmoveNumber
         s.history = list(self.history)
         s.positionKeys = list(self.positionKeys)
+        s.rep_history = self.rep_history  # 共享只读引用，搜索不修改
         return s
 
     # 轻量克隆（AI 搜索专用：跳过记谱与局面键拷贝）
@@ -188,6 +218,7 @@ class GameState:
         s.fullmoveNumber = self.fullmoveNumber
         s.history = []
         s.positionKeys = []
+        s.rep_history = self.rep_history  # 共享只读引用，搜索不修改
         return s
 
 

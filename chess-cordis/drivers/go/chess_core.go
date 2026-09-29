@@ -86,6 +86,9 @@ type GameState struct {
 	FullmoveNumber   int
 	History          []string
 	PositionKeys     []string
+	// RepHistory: runner-supplied position keys seen so far this game (engine.mjs
+	// keys), used by the repetition penalty in chess_ai.go. nil ⇒ no penalty.
+	RepHistory map[string]int
 }
 
 // NewGame 返回初始化为开局局面的 GameState（对齐 C++ 默认构造函数）
@@ -164,6 +167,45 @@ func (s *GameState) GetPositionKey() string {
 	return sb.String()
 }
 
+// PositionKeySimple 返回与 engine.mjs 的 getPositionKey 完全一致的局面键：
+//   · 易位权不加 '-' 分隔符（KQkq 直接拼接）
+//   · 过路兵用存储值（EnPassantRow/Col），不调用 HasLegalEnPassant
+// 重复惩罚在评估层比对 runner 传来的历史键（也是 engine.mjs 键），
+// 所以必须保证两边键格式一致，否则惩罚永远不会触发。
+func (s *GameState) PositionKeySimple() string {
+	var sb strings.Builder
+	for r := 0; r < 8; r++ {
+		for c := 0; c < 8; c++ {
+			sb.WriteByte(s.Board[r][c])
+		}
+	}
+	if s.WhiteToMove {
+		sb.WriteByte('w')
+	} else {
+		sb.WriteByte('b')
+	}
+	if s.CanCastleWK {
+		sb.WriteByte('K')
+	}
+	if s.CanCastleWQ {
+		sb.WriteByte('Q')
+	}
+	if s.CanCastleBK {
+		sb.WriteByte('k')
+	}
+	if s.CanCastleBQ {
+		sb.WriteByte('q')
+	}
+	if s.EnPassantRow >= 0 && s.EnPassantCol >= 0 {
+		sb.WriteString(strconv.Itoa(s.EnPassantRow))
+		sb.WriteByte(',')
+		sb.WriteString(strconv.Itoa(s.EnPassantCol))
+	} else {
+		sb.WriteString("-1,-1")
+	}
+	return sb.String()
+}
+
 // Clone 深拷贝全部字段（含 history / positionKeys）
 func (s *GameState) Clone() GameState {
 	var n GameState
@@ -179,6 +221,7 @@ func (s *GameState) Clone() GameState {
 	n.FullmoveNumber = s.FullmoveNumber
 	n.History = append([]string(nil), s.History...)
 	n.PositionKeys = append([]string(nil), s.PositionKeys...)
+	n.RepHistory = s.RepHistory // shared read-only during search
 	return n
 }
 
@@ -195,6 +238,7 @@ func (s *GameState) CloneLight() GameState {
 	n.EnPassantCol = s.EnPassantCol
 	n.HalfmoveClock = s.HalfmoveClock
 	n.FullmoveNumber = s.FullmoveNumber
+	n.RepHistory = s.RepHistory // shared read-only during search
 	return n
 }
 

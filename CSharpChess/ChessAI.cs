@@ -19,6 +19,10 @@ namespace ChessEngine
     {
         public const int MateScore = 900000;   // 将死基准分
         public const int Infinity = 1000000;   // 有界无穷大
+        // 重复惩罚：当叶局面的 engine.mjs 兼容键出现在 RepHistory（本局此前见过）中时，
+        // 按出现次数扣分（白方视角）。引导搜索规避重复局面、减少三重复和棋。约半兵，足以
+        // 影响平手选择又不至于为避重而弃子。对齐 go/js 的 RepetitionPenalty=60。
+        public const int RepetitionPenalty = 60;
 
         // ---------------------------- 子力价值（厘兵单位） ----------------------------
         // 索引：0=空 1=兵 2=马 3=象 4=车 5=后 6=王
@@ -136,6 +140,15 @@ namespace ChessEngine
                     {
                         score -= PieceValue[idx] + GetPST(idx, (7 - r) * 8 + c);
                     }
+                }
+            }
+            // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
+            if (state.RepHistory != null)
+            {
+                string key = state.PositionKeySimple();
+                if (state.RepHistory.TryGetValue(key, out int cnt) && cnt > 0)
+                {
+                    score -= RepetitionPenalty * cnt;
                 }
             }
             return score;

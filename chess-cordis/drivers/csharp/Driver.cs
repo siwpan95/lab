@@ -131,6 +131,21 @@ namespace ChessEngineDriver
                     int depth = root.TryGetProperty("depth", out JsonElement d) ? d.GetInt32() : 0;
 
                     GameState state = SetupFromFen(fen);
+
+                    // 读取 runner 传来的历史局面键（engine.mjs 键），构建重复惩罚计数表。
+                    // 空 / 缺失 ⇒ 不设置 RepHistory（不惩罚）。
+                    if (cmd == "bestMove" && root.TryGetProperty("history", out JsonElement histEl)
+                        && histEl.ValueKind == JsonValueKind.Array)
+                    {
+                        Dictionary<string, int> rep = new Dictionary<string, int>();
+                        foreach (JsonElement el in histEl.EnumerateArray())
+                        {
+                            string k = el.GetString() ?? "";
+                            if (k.Length == 0) continue;
+                            if (rep.ContainsKey(k)) rep[k]++; else rep[k] = 1;
+                        }
+                        if (rep.Count > 0) state.RepHistory = rep;
+                    }
                     if (cmd == "perft")
                     {
                         long nodes = Perft(state, depth);
@@ -149,6 +164,11 @@ namespace ChessEngineDriver
                             Emit("{\"id\":\"" + J(id) + "\",\"ok\":false,\"error\":\"no legal move\"}");
                         else
                             Emit("{\"id\":\"" + J(id) + "\",\"ok\":true,\"move\":\"" + J(MoveToUci(mv)) + "\",\"score\":0}");
+                    }
+                    else if (cmd == "positionKey")
+                    {
+                        // 只读校验辅助：返回该 FEN 的 engine.mjs 兼容局面键。
+                        Emit("{\"id\":\"" + J(id) + "\",\"ok\":true,\"key\":\"" + J(state.PositionKeySimple()) + "\"}");
                     }
                     else
                     {

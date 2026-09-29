@@ -47,6 +47,11 @@ pub struct AIEngine;
 impl AIEngine {
     pub const MATE_SCORE: i32 = 900000;
     pub const INFINITY: i32 = 1000000;
+    // RepetitionPenalty：当某个叶局面的 engine.mjs 兼容键出现在 RepHistory（本局
+    // 此前见过的局面）中时，按出现次数扣分（白方视角）。目的是引导搜索远离会把
+    // 对局带回重复局面的走法，从而减少三重复和棋。取值约半兵，足够影响平手选择、
+    // 又不至于让引擎为了避重而白白弃子。
+    pub const REPETITION_PENALTY: i32 = 60;
 
     fn piece_index(p: char) -> i32 {
         match p.to_ascii_uppercase() {
@@ -87,6 +92,15 @@ impl AIEngine {
                     score += PIECE_VALUE[idx as usize] + Self::get_pst(idx, pos);
                 } else {
                     score -= PIECE_VALUE[idx as usize] + Self::get_pst(idx, ((7 - r) * 8 + c) as i32);
+                }
+            }
+        }
+        // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
+        if let Some(rep) = &state.rep_history {
+            let key = state.position_key_simple();
+            if let Some(&cnt) = rep.get(&key) {
+                if cnt > 0 {
+                    score -= Self::REPETITION_PENALTY * cnt;
                 }
             }
         }

@@ -139,7 +139,10 @@ async function playGame(white, black, gameNo, whiteId, blackId, depth, openingPl
 
     let uci;
     try {
-      uci = await eng.bestMove(E.serializeFen(state), depth);
+      // history = positions seen so far (all but the current one) so engines can
+      // penalize moving back into an already-played position (anti-threefold).
+      const history = state.keys.slice(0, -1);
+      uci = await eng.bestMove(E.serializeFen(state), depth, history);
     } catch (e) {
       // timeout / crash / subprocess error → forfeit this game, kill engine.
       crashed = engId;

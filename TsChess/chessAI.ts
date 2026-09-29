@@ -12,6 +12,11 @@
 
 import { GameState, Move, Rules, SpecialMove } from './chessCore.ts';
 
+// 重复惩罚：当某个叶局面的 engine.mjs 兼容键出现在 repHistory（本局此前见过的局面）
+// 中时，按出现次数扣分（白方视角）。目的是引导搜索远离会把对局带回重复局面的走法，
+// 从而减少三重复和棋。取值约半兵，足够影响平手选择、又不至于让引擎为了避重而弃子。
+const REPETITION_PENALTY = 60;
+
 export class AIEngine {
     static readonly MateScore = 900000;   // 将死基准分
     static readonly Infinity = 1000000;   // 有界无穷大
@@ -32,6 +37,12 @@ export class AIEngine {
                     score -= PieceValue[idx] + AIEngine.GetPST(idx, (7 - r) * 8 + c);
                 }
             }
+        }
+        // 重复惩罚：叶局面在 repHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
+        if (state.repHistory) {
+            const key = state.PositionKeySimple();
+            const cnt = state.repHistory[key];
+            if (cnt) score -= REPETITION_PENALTY * cnt;
         }
         return score;
     }

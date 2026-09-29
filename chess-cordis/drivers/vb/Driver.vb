@@ -153,6 +153,33 @@ Module Driver
         Return Integer.Parse(json.Substring(startA, p - startA))
     End Function
 
+    ' Extract an array of JSON strings: e.g. "history":["key1","key2"].
+    ' Bracket-depth aware so commas inside quoted keys (e.g. en-passant "2,3") are safe.
+    Function getStrArray(ByVal json As String, ByVal key As String) As List(Of String)
+        Dim res As New List(Of String)()
+        Dim needle As String = Chr(34) & key & Chr(34) & ":["
+        Dim idx As Integer = json.IndexOf(needle)
+        If idx < 0 Then Return res
+        Dim pos As Integer = idx + needle.Length ' 位于 '[' 之后
+        Dim depthB As Integer = 1
+        While pos < json.Length AndAlso depthB > 0
+            Dim ch As Char = json(pos)
+            If ch = "["c Then
+                depthB += 1 : pos += 1
+            ElseIf ch = "]"c Then
+                depthB -= 1 : pos += 1
+            ElseIf ch = Chr(34) Then
+                Dim q2 As Integer = json.IndexOf(Chr(34), pos + 1)
+                If q2 < 0 Then Exit While
+                res.Add(json.Substring(pos + 1, q2 - pos - 1))
+                pos = q2 + 1
+            Else
+                pos += 1
+            End If
+        End While
+        Return res
+    End Function
+
     Sub outLine(ByVal line As String)
         Console.WriteLine(line)
         Console.Out.Flush()
@@ -177,12 +204,25 @@ Module Driver
                         outLine("{""id"":""" & esc(id) & """,""ok"":true,""moves"":" & n.ToString() & "}")
                     ElseIf cmd = "bestMove" Then
                         Dim sd As Integer = If(depth < 1, 3, depth)
+                        ' 重复惩罚：解析 history（engine.mjs 局面键），非空则构建计数表并赋值；
+                        ' 空/缺省则保留 Nothing（不罚）。
+                        Dim hist As List(Of String) = getStrArray(line, "history")
+                        If hist.Count > 0 Then
+                            Dim rep As New Dictionary(Of String, Integer)()
+                            For Each k As String In hist
+                                If rep.ContainsKey(k) Then rep(k) += 1 Else rep(k) = 1
+                            Next
+                            state.RepHistory = rep
+                        End If
                         Dim mv As Move? = AIEngine.FindBestMove(state, sd)
                         If mv Is Nothing Then
                             outLine("{""id"":""" & esc(id) & """,""ok"":false,""error"":""no legal move""}")
                         Else
                             outLine("{""id"":""" & esc(id) & """,""ok"":true,""move"":""" & esc(moveToUci(mv.Value)) & """,""score"":0}")
                         End If
+                    ElseIf cmd = "positionKey" Then
+                        ' 只读校验辅助：返回所请求 FEN 的 engine.mjs 兼容键。
+                        outLine("{""id"":""" & esc(id) & """,""ok"":true,""key"":""" & esc(state.PositionKeySimple()) & """}")
                     Else
                         outLine("{""id"":""" & esc(id) & """,""ok"":false,""error"":""unknown cmd""}")
                     End If

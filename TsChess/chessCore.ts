@@ -89,6 +89,9 @@ export class GameState {
     history: string[] = [];
     // 局面键历史（三次重复判和：棋盘+行棋方+易位权+过路兵格）
     positionKeys: string[] = [];
+    // runner 传入的本局已见局面键（engine.mjs 兼容键）及出现次数，供重复惩罚使用。
+    // null ⇒ 不施加惩罚。搜索过程中只读取、从不修改，故 Clone/CloneLight 中保持共享引用。
+    repHistory: { [key: string]: number } | null = null;
 
     constructor() {
         this.ResetToStartPosition();
@@ -136,6 +139,30 @@ export class GameState {
         return s;
     }
 
+    // engine.mjs 兼容局面键（无 '-' 分隔的易位权、用存储值过路兵），供 runner 传来的
+    // 重复惩罚比对使用。必须与 engine.mjs 的 getPositionKey 完全一致，否则惩罚永不触发。
+    //   1. 64 格棋盘字符（row-major，TS 自身棋子字母，'.' 表示空）
+    //   2. 行棋方：'w' 或 'b'
+    //   3. 易位权：仅拼接存在的权利 'K''Q''k''q'，缺失不加 '-'、不加分隔符
+    //   4. 过路兵：使用 FEN 解析后的存储值（enPassantRow/Col）；有则 ${row},${col}，无则 "-1,-1"
+    PositionKeySimple(): string {
+        let s = "";
+        for (let r = 0; r < 8; ++r)
+            for (let c = 0; c < 8; ++c)
+                s += this.board[r][c];
+        s += (this.whiteToMove ? 'w' : 'b');
+        if (this.canCastleWK) s += 'K';
+        if (this.canCastleWQ) s += 'Q';
+        if (this.canCastleBK) s += 'k';
+        if (this.canCastleBQ) s += 'q';
+        if (this.enPassantRow >= 0 && this.enPassantCol >= 0) {
+            s += this.enPassantRow + ',' + this.enPassantCol;
+        } else {
+            s += "-1,-1";
+        }
+        return s;
+    }
+
     // 深拷贝（含记谱与局面键）
     Clone(): GameState {
         const s = new GameState();
@@ -147,6 +174,7 @@ export class GameState {
         s.halfmoveClock = this.halfmoveClock; s.fullmoveNumber = this.fullmoveNumber;
         s.history = this.history.slice();
         s.positionKeys = this.positionKeys.slice();
+        s.repHistory = this.repHistory; // 共享只读引用（搜索不修改）
         return s;
     }
 
@@ -161,6 +189,7 @@ export class GameState {
         s.halfmoveClock = this.halfmoveClock; s.fullmoveNumber = this.fullmoveNumber;
         s.history = [];
         s.positionKeys = [];
+        s.repHistory = this.repHistory; // 共享只读引用（搜索不修改）
         return s;
     }
 }

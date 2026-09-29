@@ -4,6 +4,9 @@
 //   规则：GeneratePseudoMoves -> 副本 ApplyMove -> IsAttacked 过滤送王着法
 // =============================================================================
 
+use std::collections::HashMap;
+use std::rc::Rc;
+
 // ---------------------------- 特殊走法类型 ----------------------------
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SpecialMove {
@@ -91,6 +94,11 @@ pub struct GameState {
     pub fullmove_number: i32,
     pub history: Vec<String>,
     pub position_keys: Vec<String>,
+    // RepHistory: runner-supplied position keys seen so far this game (engine.mjs
+    // keys), used by the repetition penalty in chess_ai.rs. None ⇒ no penalty.
+    // Stored as Rc so Clone/CloneLight share the map without deep-copying it;
+    // the search never mutates it.
+    pub rep_history: Option<Rc<HashMap<String, i32>>>,
 }
 
 impl GameState {
@@ -108,6 +116,7 @@ impl GameState {
             fullmove_number: 1,
             history: Vec::new(),
             position_keys: Vec::new(),
+            rep_history: None,
         };
         s.reset_to_start_position();
         s
@@ -137,6 +146,39 @@ impl GameState {
         self.history.clear();
         self.position_keys.clear();
         self.position_keys.push(self.get_position_key());
+    }
+
+    // PositionKeySimple：与 engine.mjs 的 getPositionKey 完全一致的局面键：
+    //   · 易位权不加 '-' 分隔符（KQkq 直接拼接）
+    //   · 过路兵用存储值（en_passant_row/col），不调用 has_legal_en_passant
+    // 重复惩罚在评估层比对 runner 传来的历史键（也是 engine.mjs 键），
+    // 所以必须保证两边键格式一致，否则惩罚永远不会触发。
+    pub fn position_key_simple(&self) -> String {
+        let mut s = String::with_capacity(90);
+        for r in 0..8 {
+            for c in 0..8 {
+                s.push(self.board[r][c]);
+            }
+        }
+        s.push(if self.white_to_move { 'w' } else { 'b' });
+        if self.can_castle_wk {
+            s.push('K');
+        }
+        if self.can_castle_wq {
+            s.push('Q');
+        }
+        if self.can_castle_bk {
+            s.push('k');
+        }
+        if self.can_castle_bq {
+            s.push('q');
+        }
+        if self.en_passant_row >= 0 && self.en_passant_col >= 0 {
+            s.push_str(&format!("{},{}", self.en_passant_row, self.en_passant_col));
+        } else {
+            s.push_str("-1,-1");
+        }
+        s
     }
 
     // 局面键：影响重复判定的全部状态
@@ -175,6 +217,7 @@ impl GameState {
             fullmove_number: self.fullmove_number,
             history: Vec::new(),
             position_keys: Vec::new(),
+            rep_history: self.rep_history.clone(), // shared read-only during search
         }
     }
 }

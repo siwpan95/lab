@@ -11,7 +11,9 @@ mod chess_ai;
 
 use chess_core::{GameState, Move, Rules};
 use chess_ai::AIEngine;
+use std::collections::HashMap;
 use std::io::{self, BufRead, Write, BufWriter};
+use std::rc::Rc;
 
 // ---------- minimal JSON field extractor ----------
 
@@ -30,6 +32,39 @@ fn get_field<'a>(s: &'a str, key: &str) -> Option<&'a str> {
         let end = rest.find(|c| c == ',' || c == '}' || c == ' ')?;
         Some(&rest[..end])
     }
+}
+
+// Parse the `history` JSON array field (array of strings) into a Vec<String>.
+// Returns an empty Vec if the field is absent or malformed.
+fn parse_history_array(s: &str) -> Vec<String> {
+    let pat = "\"history\"";
+    let idx = match s.find(pat) {
+        Some(i) => i,
+        None => return Vec::new(),
+    };
+    let rest = &s[idx + pat.len()..];
+    let rest = match rest.trim_start().strip_prefix(':') {
+        Some(r) => r,
+        None => return Vec::new(),
+    };
+    let rest = rest.trim_start();
+    let open = match rest.find('[') {
+        Some(i) => i,
+        None => return Vec::new(),
+    };
+    let close = match rest[open..].find(']') {
+        Some(i) => open + i,
+        None => return Vec::new(),
+    };
+    let inner = &rest[open + 1..close];
+    let mut v = Vec::new();
+    for part in inner.split(',') {
+        let p = part.trim();
+        if p.len() >= 2 && p.starts_with('"') && p.ends_with('"') {
+            v.push(p[1..p.len() - 1].to_string());
+        }
+    }
+    v
 }
 
 // ---------- FEN parsing (mirrors the engine's own setup) ----------
@@ -82,6 +117,7 @@ fn from_fen(fen: &str) -> GameState {
     s.fullmove_number = fullmove;
     s.history.clear();
     s.position_keys.clear();
+    s.rep_history = None;
     s
 }
 
@@ -136,7 +172,7 @@ fn main() {
         let cmd = get_field(line, "cmd").unwrap_or("");
         let fen = get_field(line, "fen").unwrap_or("");
         let depth: i32 = get_field(line, "depth").and_then(|x| x.parse().ok()).unwrap_or(0);
-        let state = from_fen(fen);
+        let mut state = from_fen(fen);
         match cmd {
             "perft" => {
                 let n = perft(&state, depth);
@@ -146,15 +182,33 @@ fn main() {
                 let n = Rules::generate_all_legal_moves(&state).len();
                 writeln!(out, "{{\"id\":\"{}\",\"ok\":true,\"moves\":{}}}", id, n).unwrap();
             }
-            "bestMove" => match AIEngine::find_best_move(&state, depth) {
-                Some(mv) => {
-                    let u = move_to_uci(&mv);
-                    writeln!(out, "{{\"id\":\"{}\",\"ok\":true,\"move\":\"{}\",\"score\":0}}", id, u).unwrap();
+            "bestMove" => {
+                // Build the repetition-penalty lookup from the runner-supplied history
+                // (engine.mjs position keys seen so far). Empty/absent ⇒ no penalty.
+                let history = parse_history_array(line);
+                if !history.is_empty() {
+                    let mut rep: HashMap<String, i32> = HashMap::new();
+                    for k in &history {
+                        *rep.entry(k.clone()).or_insert(0) += 1;
+                    }
+                    state.rep_history = Some(Rc::new(rep));
                 }
-                None => {
-                    writeln!(out, "{{\"id\":\"{}\",\"ok\":true,\"move\":null,\"score\":0}}", id).unwrap();
+                match AIEngine::find_best_move(&state, depth) {
+                    Some(mv) => {
+                        let u = move_to_uci(&mv);
+                        writeln!(out, "{{\"id\":\"{}\",\"ok\":true,\"move\":\"{}\",\"score\":0}}", id, u).unwrap();
+                    }
+                    None => {
+                        writeln!(out, "{{\"id\":\"{}\",\"ok\":true,\"move\":null,\"score\":0}}", id).unwrap();
+                    }
                 }
-            },
+            }
+            "positionKey" => {
+                // Read-only verification aid: returns the engine.mjs-compatible key of
+                // the requested FEN. Not used by the tournament runner.
+                let key = state.position_key_simple();
+                writeln!(out, "{{\"id\":\"{}\",\"ok\":true,\"key\":\"{}\"}}", id, key).unwrap();
+            }
             _ => {
                 writeln!(out, "{{\"id\":\"{}\",\"ok\":false,\"error\":\"unknown cmd\"}}", id).unwrap();
             }

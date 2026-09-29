@@ -12,6 +12,7 @@
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 // ---------------------------- 特殊走法类型 ----------------------------
 enum SpecialMove {
@@ -86,6 +87,9 @@ class GameState {
     List<String> history = new ArrayList<>();
     // 局面键历史（三次重复判和：棋盘+行棋方+易位权+过路兵格）
     List<String> positionKeys = new ArrayList<>();
+    // RepHistory：runner 传来本局此前见过的局面键（engine.mjs 兼容键），供重复惩罚使用。
+    // null ⇒ 无惩罚。搜索期间只读、共享引用，clone 时不深拷贝。
+    Map<String,Integer> RepHistory = null;
 
     GameState() { ResetToStartPosition(); }
 
@@ -132,6 +136,28 @@ class GameState {
         return s.toString();
     }
 
+    // engine.mjs 兼容局面键（无 '-' 分隔的易位权、用存储值过路兵），供 runner 传来的
+    // 重复惩罚比对使用。必须与 engine.mjs 的 getPositionKey 完全一致，否则惩罚永不触发。
+    String PositionKeySimple() {
+        StringBuilder s = new StringBuilder(90);
+        for (int r = 0; r < 8; ++r)
+            for (int c = 0; c < 8; ++c)
+                s.append(board[r][c]);
+        s.append(whiteToMove ? 'w' : 'b');
+        if (canCastleWK) s.append('K');
+        if (canCastleWQ) s.append('Q');
+        if (canCastleBK) s.append('k');
+        if (canCastleBQ) s.append('q');
+        if (enPassantRow >= 0 && enPassantCol >= 0) {
+            s.append(enPassantRow);
+            s.append(',');
+            s.append(enPassantCol);
+        } else {
+            s.append("-1,-1");
+        }
+        return s.toString();
+    }
+
     // 深拷贝（含记谱与局面键）
     GameState Clone() {
         GameState g = new GameState();
@@ -143,6 +169,7 @@ class GameState {
         g.halfmoveClock = this.halfmoveClock; g.fullmoveNumber = this.fullmoveNumber;
         g.history = new ArrayList<>(this.history);
         g.positionKeys = new ArrayList<>(this.positionKeys);
+        g.RepHistory = this.RepHistory; // shared read-only during search
         return g;
     }
 
@@ -158,6 +185,7 @@ class GameState {
         // 轻量克隆：跳过 history 与 positionKeys（AI 搜索不关心记谱/重复判定）
         g.history = new ArrayList<>();
         g.positionKeys = new ArrayList<>();
+        g.RepHistory = this.RepHistory; // shared read-only during search
         return g;
     }
 

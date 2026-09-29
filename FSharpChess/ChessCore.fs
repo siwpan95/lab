@@ -11,6 +11,7 @@ module ChessCore
 
 open System
 open System.Collections.Generic
+open System.Text
 
 // ---------------------------- 特殊走法类型 ----------------------------
 type SpecialMove =
@@ -45,6 +46,31 @@ type GameState() =
     member val EnPassantCol: int = -1 with get, set
     member val HalfmoveClock: int = 0 with get, set
     member val FullmoveNumber: int = 1 with get, set
+    // RepHistory: runner-supplied engine.mjs position keys seen so far this game
+    // (excludes the current position). Used by the repetition penalty in evaluate.
+    // None ⇒ no penalty. Shared read-only reference in CloneLight (never deep-copied;
+    // the search never mutates it).
+    member val RepHistory: Map<string,int> option = None with get, set
+
+    // engine.mjs-compatible position key: 64 board chars (row-major) + side ('w'/'b')
+    // + concatenated present castling rights (NO dash/separator) + en-passant using the
+    // STORED square (EnPassantRow/EnPassantCol) or "-1,-1". Must byte-match
+    // engine.mjs getPositionKey exactly, otherwise the penalty never fires.
+    member this.PositionKeySimple() =
+        let sb = StringBuilder(80)
+        for r in 0..7 do
+            for c in 0..7 do
+                sb.Append(this.Board.[r, c]) |> ignore
+        sb.Append(if this.WhiteToMove then 'w' else 'b') |> ignore
+        if this.CanCastleWK then sb.Append('K') |> ignore
+        if this.CanCastleWQ then sb.Append('Q') |> ignore
+        if this.CanCastleBK then sb.Append('k') |> ignore
+        if this.CanCastleBQ then sb.Append('q') |> ignore
+        if this.EnPassantRow >= 0 && this.EnPassantCol >= 0 then
+            sb.Append(this.EnPassantRow).Append(',').Append(this.EnPassantCol) |> ignore
+        else
+            sb.Append("-1,-1") |> ignore
+        sb.ToString()
 
     member this.ResetToStartPosition() =
         let back = "rnbqkbnr"
@@ -79,6 +105,7 @@ type GameState() =
         s.EnPassantCol <- this.EnPassantCol
         s.HalfmoveClock <- this.HalfmoveClock
         s.FullmoveNumber <- this.FullmoveNumber
+        s.RepHistory <- this.RepHistory // shared read-only during search
         s
 
 // ---------------------------- 规则引擎 ----------------------------
@@ -378,6 +405,11 @@ let rec perft (state: GameState) depth : int64 =
         nodes
 
 // ---------------------------- AI：negamax + 子力 + 静止搜索 ----------------------------
+// RepetitionPenalty：当叶局面的 engine.mjs 兼容键出现在 RepHistory（本局此前见过的
+// 局面）中时，按出现次数扣分（白方视角）。引导搜索远离会把对局带回重复局面的走法，
+// 从而减少三重复和棋。取值约半兵，足够影响平手选择、又不至于让引擎为避重而白白弃子。
+let RepetitionPenalty = 60
+
 let pieceValue (p: char) =
     match Char.ToUpperInvariant(p) with
     | 'P' -> 100
@@ -474,6 +506,14 @@ let evaluate (state: GameState) =
                 let pv = tbl.[pr, c]
                 if isWhite then score <- score + v + pv
                 else score <- score - v - pv
+    // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
+    match state.RepHistory with
+    | Some rep ->
+        let key = state.PositionKeySimple()
+        match rep.TryFind(key) with
+        | Some cnt when cnt > 0 -> score <- score - RepetitionPenalty * cnt
+        | _ -> ()
+    | None -> ()
     if state.WhiteToMove then score else -score
 
 let rec quiescence (state: GameState) alpha beta qdepth =

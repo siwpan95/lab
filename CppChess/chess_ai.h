@@ -20,6 +20,10 @@ class AIEngine {
 public:
     static constexpr int MateScore = 900000;   // 将死基准分
     static constexpr int Infinity = 1000000;   // 有界无穷大
+    // RepetitionPenalty：叶局面的 engine.mjs 兼容键出现在 RepHistory（本局此前见过的局面）
+    // 中时，按出现次数扣分（白方视角）。引导搜索远离重复局面，减少三重复和棋。约半兵，足以
+    // 影响平手选择又不至于为避重而弃子。
+    static constexpr int REPETITION_PENALTY = 60;
 
     // 局面评估（白方视角：正 = 白方占优）
     static int Evaluate(const GameState& state);

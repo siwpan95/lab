@@ -122,6 +122,9 @@ Namespace ChessCore
         Public History As New List(Of String)
         ' 局面键历史（三次重复判和：棋盘+行棋方+易位权+过路兵格）
         Public PositionKeys As New List(Of String)
+        ' 重复惩罚历史：runner 传来的本局已出现局面键（engine.mjs 兼容键），
+        ' 供 Evaluate 中的重复惩罚比对。搜索不修改它，Clone/CloneLight 共享同一引用。
+        Public RepHistory As Dictionary(Of String, Integer) = Nothing
 
         Public Sub New()
             ResetToStartPosition()
@@ -172,6 +175,28 @@ Namespace ChessCore
             Return sb.ToString()
         End Function
 
+        ' engine.mjs 兼容局面键（无 '-' 分隔的易位权、用存储值过路兵），供 runner 传来的
+        ' 重复惩罚比对使用。必须与 engine.mjs 的 getPositionKey 完全一致，否则惩罚永不触发。
+        Public Function PositionKeySimple() As String
+            Dim sb As New Text.StringBuilder(84)
+            For r = 0 To 7
+                For c = 0 To 7
+                    sb.Append(Board(r, c))
+                Next
+            Next
+            sb.Append(If(WhiteToMove, "w", "b"))
+            If CanCastleWK Then sb.Append("K")
+            If CanCastleWQ Then sb.Append("Q")
+            If CanCastleBK Then sb.Append("k")
+            If CanCastleBQ Then sb.Append("q")
+            If EnPassantRow >= 0 AndAlso EnPassantCol >= 0 Then
+                sb.Append(EnPassantRow.ToString()).Append(","c).Append(EnPassantCol.ToString())
+            Else
+                sb.Append("-1,-1")
+            End If
+            Return sb.ToString()
+        End Function
+
         ' 深拷贝（Char 值类型二维数组 Clone 即深拷贝）
         Public Function Clone() As GameState
             Dim s As New GameState()
@@ -187,6 +212,7 @@ Namespace ChessCore
             s.FullmoveNumber = Me.FullmoveNumber
             s.History = New List(Of String)(Me.History)
             s.PositionKeys = New List(Of String)(Me.PositionKeys)
+            s.RepHistory = Me.RepHistory ' 共享只读引用（搜索不修改）
             Return s
         End Function
 
@@ -205,6 +231,7 @@ Namespace ChessCore
             s.FullmoveNumber = Me.FullmoveNumber
             s.History = Nothing
             s.PositionKeys = Nothing
+            s.RepHistory = Me.RepHistory ' 共享只读引用（搜索不修改）
             Return s
         End Function
     End Class

@@ -77,6 +77,31 @@ std::string GameState::GetPositionKey() const {
     return s;
 }
 
+std::string GameState::PositionKeySimple() const {
+    std::string s;
+    s.reserve(90);
+    // 1. 64 个棋盘字符，行优先
+    for (int r = 0; r < 8; ++r)
+        for (int c = 0; c < 8; ++c)
+            s += board[r][c];
+    // 2. 行棋方
+    s += (whiteToMove ? 'w' : 'b');
+    // 3. 易位权：无 '-' 分隔符，仅拼接存在的权利；全无则不追加任何字符
+    if (canCastleWK) s += 'K';
+    if (canCastleWQ) s += 'Q';
+    if (canCastleBK) s += 'k';
+    if (canCastleBQ) s += 'q';
+    // 4. 过路兵：使用存储的 enPassantRow/Col；未设置则 "-1,-1"（不调用 HasLegalEnPassant）
+    if (enPassantRow >= 0 && enPassantCol >= 0) {
+        s += std::to_string(enPassantRow);
+        s += ',';
+        s += std::to_string(enPassantCol);
+    } else {
+        s += "-1,-1";
+    }
+    return s;
+}
+
 GameState GameState::Clone() const {
     GameState s;
     std::memcpy(s.board, board, sizeof(board));
@@ -87,6 +112,7 @@ GameState GameState::Clone() const {
     s.halfmoveClock = halfmoveClock; s.fullmoveNumber = fullmoveNumber;
     s.history = history;
     s.positionKeys = positionKeys;
+    s.RepHistory = RepHistory; // 共享只读（搜索期间不修改）
     return s;
 }
 
@@ -98,6 +124,7 @@ GameState GameState::CloneLight() const {
     s.canCastleBK = canCastleBK; s.canCastleBQ = canCastleBQ;
     s.enPassantRow = enPassantRow; s.enPassantCol = enPassantCol;
     s.halfmoveClock = halfmoveClock; s.fullmoveNumber = fullmoveNumber;
+    s.RepHistory = RepHistory; // 共享只读（搜索期间不修改）
     // 轻量克隆：跳过 history 与 positionKeys（AI 搜索不关心记谱/重复判定）
     return s;
 }

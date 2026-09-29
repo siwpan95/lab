@@ -107,9 +107,28 @@ let main _ =
                     let n = (generateAllLegalMoves state).Count
                     printfn "{\"id\":\"%s\",\"ok\":true,\"moves\":%d}" (j id) n
                 | "bestMove" ->
+                    // Build the repetition-penalty lookup from the runner-supplied history
+                    // (engine.mjs position keys seen so far this game, excludes current).
+                    // Empty/absent ⇒ no penalty.
+                    let mutable hEl = JsonElement()
+                    let rep =
+                        if root.TryGetProperty("history", &hEl) && hEl.ValueKind = JsonValueKind.Array then
+                            let keys = [
+                                for i in 0 .. hEl.GetArrayLength() - 1 ->
+                                    let k = hEl.[i].GetString()
+                                    if isNull k then "" else k
+                            ]
+                            if List.isEmpty keys then None
+                            else Some (keys |> List.countBy (fun x -> x) |> Map.ofList)
+                        else None
+                    state.RepHistory <- rep
                     let sd = if depth < 1 then 3 else depth
                     let mv = findBestMove state sd
                     printfn "{\"id\":\"%s\",\"ok\":true,\"move\":\"%s\",\"score\":0}" (j id) (j (moveToUci mv))
+                | "positionKey" ->
+                    // Read-only verification aid: returns the engine.mjs-compatible key
+                    // of the requested FEN (must byte-match engine.mjs getPositionKey).
+                    printfn "{\"id\":\"%s\",\"ok\":true,\"key\":\"%s\"}" (j id) (j (state.PositionKeySimple()))
                 | _ ->
                     printfn "{\"id\":\"%s\",\"ok\":false,\"error\":\"unknown cmd\"}" (j id)
                 Console.Out.Flush()

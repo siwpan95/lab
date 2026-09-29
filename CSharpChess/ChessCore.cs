@@ -112,6 +112,9 @@ namespace ChessEngine
         public List<string> History = new List<string>();
         // 局面键历史（三次重复判和：棋盘+行棋方+易位权+过路兵格）
         public List<string> PositionKeys = new List<string>();
+        // 重复惩罚用：runner 本局已见过的 engine.mjs 兼容局面键（计数）。null = 不惩罚。
+        // 搜索期间只读、作为共享引用传递（不深拷贝）。
+        public Dictionary<string, int>? RepHistory = null;
 
         // 初始局面键是常量，缓存以避免 CloneLight() 在搜索热路径上重复构串
         // （不改变任何可观察语义，仅省去重复计算）
@@ -169,6 +172,35 @@ namespace ChessEngine
             return s.ToString();
         }
 
+        // engine.mjs 兼容局面键（易位权无 '-' 分隔、过路兵用存储值 EnPassantRow/Col），
+        // 供 runner 传来的重复惩罚比对使用。必须与 engine.mjs.getPositionKey 完全一致，
+        // 否则惩罚永不触发或触发在错误局面。详见 porting 任务的“POSITION KEY CONTRACT”。
+        public string PositionKeySimple()
+        {
+            StringBuilder s = new StringBuilder(90);
+            for (int r = 0; r < 8; ++r)
+                for (int c = 0; c < 8; ++c)
+                    s.Append(Board[r, c]);
+            s.Append(WhiteToMove ? 'w' : 'b');
+            // 易位权：不插入 '-'，仅拼接实际存在的权利 K/Q/k/q；全无则追加空串。
+            if (CanCastleWK) s.Append('K');
+            if (CanCastleWQ) s.Append('Q');
+            if (CanCastleBK) s.Append('k');
+            if (CanCastleBQ) s.Append('q');
+            // 过路兵：直接用 FEN 解析出的存储值，不调用 HasLegalEnPassant。
+            if (EnPassantRow >= 0 && EnPassantCol >= 0)
+            {
+                s.Append(EnPassantRow.ToString());
+                s.Append(',');
+                s.Append(EnPassantCol.ToString());
+            }
+            else
+            {
+                s.Append("-1,-1");
+            }
+            return s.ToString();
+        }
+
         // 深拷贝（含记谱与局面键）
         public GameState Clone()
         {
@@ -181,6 +213,7 @@ namespace ChessEngine
             s.HalfmoveClock = HalfmoveClock; s.FullmoveNumber = FullmoveNumber;
             s.History = new List<string>(History);
             s.PositionKeys = new List<string>(PositionKeys);
+            s.RepHistory = RepHistory; // 共享引用，搜索期间只读
             return s;
         }
 
@@ -195,6 +228,7 @@ namespace ChessEngine
             s.CanCastleBK = CanCastleBK; s.CanCastleBQ = CanCastleBQ;
             s.EnPassantRow = EnPassantRow; s.EnPassantCol = EnPassantCol;
             s.HalfmoveClock = HalfmoveClock; s.FullmoveNumber = FullmoveNumber;
+            s.RepHistory = RepHistory; // 共享引用，搜索期间只读
             return s;
         }
     }

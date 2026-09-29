@@ -102,8 +102,19 @@ function main() {
       } else if (cmd === 'legalMoves') {
         process.stdout.write(JSON.stringify({ id: rid, ok: true, moves: Rules.GenerateAllLegalMoves(state).length }) + '\n');
       } else if (cmd === 'bestMove') {
+        // 重复惩罚：用 runner 传入的历史局面键（engine.mjs 兼容键）构建计数表，
+        // 赋给 state.repHistory。空/absent ⇒ 不施加惩罚。
+        const history: string[] | undefined = req.history;
+        if (history && history.length > 0) {
+          const rep: { [key: string]: number } = {};
+          for (const k of history) rep[k] = (rep[k] ?? 0) + 1;
+          state.repHistory = rep;
+        }
         const mv = AIEngine.FindBestMove(state, depth > 0 ? depth : 2);
         process.stdout.write(JSON.stringify({ id: rid, ok: true, move: mv ? moveToUci(mv) : null, score: 0 }) + '\n');
+      } else if (cmd === 'positionKey') {
+        // 只读校验辅助：返回请求 FEN 的 engine.mjs 兼容局面键。
+        process.stdout.write(JSON.stringify({ id: rid, ok: true, key: state.PositionKeySimple() }) + '\n');
       } else {
         process.stdout.write(JSON.stringify({ id: rid, ok: false, error: 'unknown cmd' }) + '\n');
       }

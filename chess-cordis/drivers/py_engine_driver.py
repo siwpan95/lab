@@ -82,7 +82,8 @@ def perft(state: GameState, depth: int) -> int:
 
 
 def main() -> None:
-    print(json.dumps({"ready": True}), flush=True)
+    # 紧凑分隔符以匹配 harness 的 ready 检测（"ready":true 不含空格）
+    print(json.dumps({"ready": True}, separators=(",", ":")), flush=True)
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -102,8 +103,19 @@ def main() -> None:
             elif cmd == "legalMoves":
                 print(json.dumps({"id": rid, "ok": True, "moves": len(Rules.generate_all_legal_moves(state))}), flush=True)
             elif cmd == "bestMove":
+                # 由 runner 提供的 history（本局已出现的 engine.mjs 局面键）构建重复惩罚查表。
+                # 非空前构建 count 字典；空或缺失则保持 None（不惩罚）。
+                history = req.get("history")
+                if history:
+                    rep = {}
+                    for k in history:
+                        rep[k] = rep.get(k, 0) + 1
+                    state.rep_history = rep
                 mv = AIEngine.find_best_move(state, depth if depth > 0 else 2)
                 print(json.dumps({"id": rid, "ok": True, "move": move_to_uci(mv) if mv else None, "score": 0}), flush=True)
+            elif cmd == "positionKey":
+                # 只读校验辅助：返回所请求 FEN 的 engine.mjs 兼容局面键。
+                print(json.dumps({"id": rid, "ok": True, "key": state.position_key_simple()}), flush=True)
             else:
                 print(json.dumps({"id": rid, "ok": False, "error": "unknown cmd"}), flush=True)
         except Exception as e:

@@ -15,10 +15,13 @@ import (
 // ---------- JSON-stdio request / response ----------
 
 type request struct {
-	ID    string  `json:"id"`
-	Cmd   string  `json:"cmd"`
-	Fen   string  `json:"fen"`
-	Depth float64 `json:"depth"`
+	ID    string   `json:"id"`
+	Cmd   string   `json:"cmd"`
+	Fen   string   `json:"fen"`
+	Depth float64  `json:"depth"`
+	// History: engine.mjs position keys seen so far this game (excludes the
+	// current position). Used by the repetition penalty in chess_ai.go. Absent/empty ⇒ no penalty.
+	History []string `json:"history"`
 }
 
 func send(out *bufio.Writer, obj interface{}) {
@@ -148,12 +151,25 @@ func main() {
 		case "legalMoves":
 			send(out, map[string]interface{}{"id": req.ID, "ok": true, "moves": len(GenerateAllLegalMoves(&s))})
 		case "bestMove":
+			// Build the repetition-penalty lookup from the runner-supplied history
+			// (engine.mjs position keys seen so far). Empty/absent ⇒ no penalty.
+			if len(req.History) > 0 {
+				rep := make(map[string]int, len(req.History))
+				for _, k := range req.History {
+					rep[k]++
+				}
+				s.RepHistory = rep
+			}
 			mv := FindBestMove(&s, depth)
 			if mv == nil {
 				send(out, map[string]interface{}{"id": req.ID, "ok": true, "move": nil, "score": 0})
 			} else {
 				send(out, map[string]interface{}{"id": req.ID, "ok": true, "move": moveToUci(*mv), "score": 0})
 			}
+		case "positionKey":
+			// Read-only verification aid: returns the engine.mjs-compatible key of
+			// the requested FEN. Not used by the tournament runner.
+			send(out, map[string]interface{}{"id": req.ID, "ok": true, "key": s.PositionKeySimple()})
 		default:
 			send(out, map[string]interface{}{"id": req.ID, "ok": false, "error": "unknown cmd"})
 		}

@@ -25,6 +25,7 @@
 
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 // ---------------------------- 特殊走法类型 ----------------------------
 enum class SpecialMove {
@@ -79,13 +80,21 @@ public:
     std::vector<std::string> history;
     // 局面键历史（三次重复判和：棋盘+行棋方+易位权+过路兵格）
     std::vector<std::string> positionKeys;
+    // RepHistory：runner 本局此前见过的 engine.mjs 兼容局面键（含计数），供重复惩罚使用。
+    // 以共享指针方式存在：搜索过程只读取、从不修改，Clone/CloneLight 浅拷贝同一个 map，
+    // 不做深拷贝（性能 + 一致性）。nullptr ⇒ 不施加惩罚。
+    std::unordered_map<std::string, int>* RepHistory = nullptr;
 
     GameState() { ResetToStartPosition(); }
 
     void ResetToStartPosition();
 
-    // 局面键：影响重复判定的全部状态
+    // 局面键：影响重复判定的全部状态（HasLegalEnPassant 决定 ep 是否编码）
     std::string GetPositionKey() const;
+    // engine.mjs 兼容局面键：易位权无 '-' 分隔符（仅拼接存在的权利），
+    // 过路兵用存储值（enPassantRow/Col）而非 HasLegalEnPassant。必须与
+    // engine.mjs.getPositionKey 完全一致，否则重复惩罚永不触发。
+    std::string PositionKeySimple() const;
 
     // 深拷贝（含记谱与局面键）
     GameState Clone() const;

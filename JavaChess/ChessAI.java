@@ -10,11 +10,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 class AIEngine {
 
     static final int MateScore = 900000;   // 将死基准分
     static final int Infinity = 1000000;    // 有界无穷大
+    // 重复惩罚：叶局面的 engine.mjs 兼容键出现在 RepHistory（本局此前见过）中时，按出现次数
+    // 扣分（白方视角）。引导搜索远离重复局面，减少三重复和棋。约半兵，足以影响平手选择而不弃子。
+    static final int REPETITION_PENALTY = 60;
 
     // ---------------------------- 子力价值（厘兵单位） ----------------------------
     // 索引：0=空 1=兵 2=马 3=象 4=车 5=后 6=王
@@ -122,6 +126,13 @@ class AIEngine {
                 } else {
                     score -= PieceValue[idx] + GetPST(idx, (7 - r) * 8 + c);
                 }
+            }
+        }
+        // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
+        if (state.RepHistory != null) {
+            Integer cnt = state.RepHistory.get(state.PositionKeySimple());
+            if (cnt != null && cnt > 0) {
+                score -= REPETITION_PENALTY * cnt;
             }
         }
         return score;

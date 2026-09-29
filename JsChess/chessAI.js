@@ -17,6 +17,10 @@ import { GameState, Rules, Move, SpecialMove } from './chessCore.js';
 // 索引：0=空 1=兵 2=马 3=象 4=车 5=后 6=王
 const PieceValue = [0, 100, 320, 330, 500, 900, 0];
 
+// 重复惩罚：叶局面的 engine.mjs 兼容键出现在 RepHistory（本局此前见过）中时，按出现次数
+// 扣分（白方视角）。引导搜索远离重复局面，减少三重复和棋。约半兵，足以影响平手选择而不弃子。
+const REPETITION_PENALTY = 60;
+
 // ---------------------------- 位置价值表 PST（白方视角） ----------------------------
 const PST_Pawn = [
     0,  0,  0,  0,  0,  0,  0,  0,
@@ -124,6 +128,12 @@ export class AIEngine {
                     score -= PieceValue[idx] + GetPST(idx, (7 - r) * 8 + c);
                 }
             }
+        }
+        // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
+        if (state.RepHistory) {
+            const key = state.PositionKeySimple();
+            const cnt = state.RepHistory[key];
+            if (cnt) score -= REPETITION_PENALTY * cnt;
         }
         return score;
     }

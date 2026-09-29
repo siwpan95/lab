@@ -113,6 +113,14 @@ int AIEngine::Evaluate(const GameState& state) {
             }
         }
     }
+    // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
+    if (state.RepHistory != nullptr) {
+        std::string key = state.PositionKeySimple();
+        auto it = state.RepHistory->find(key);
+        if (it != state.RepHistory->end() && it->second > 0) {
+            score -= REPETITION_PENALTY * it->second;
+        }
+    }
     return score;
 }
 

@@ -81,6 +81,7 @@ export class GameState {
         this.fullmoveNumber = 1;
         this.history = [];
         this.positionKeys = [];
+        this.RepHistory = null; // runner-supplied position keys for repetition penalty
         this.ResetToStartPosition();
     }
 
@@ -127,6 +128,26 @@ export class GameState {
         return s;
     }
 
+    // engine.mjs 兼容局面键（无 '-' 分隔的易位权、用存储值过路兵），供 runner 传来的
+    // 重复惩罚比对使用。必须与 engine.mjs 的 getPositionKey 完全一致，否则惩罚永不触发。
+    PositionKeySimple() {
+        let s = '';
+        for (let r = 0; r < 8; r++)
+            for (let c = 0; c < 8; c++)
+                s += this.board[r][c];
+        s += (this.whiteToMove ? 'w' : 'b');
+        if (this.canCastleWK) s += 'K';
+        if (this.canCastleWQ) s += 'Q';
+        if (this.canCastleBK) s += 'k';
+        if (this.canCastleBQ) s += 'q';
+        if (this.enPassantRow >= 0 && this.enPassantCol >= 0) {
+            s += this.enPassantRow + ',' + this.enPassantCol;
+        } else {
+            s += '-1,-1';
+        }
+        return s;
+    }
+
     // 深拷贝（含记谱与局面键）
     Clone() {
         const s = new GameState();
@@ -140,6 +161,7 @@ export class GameState {
         s.halfmoveClock = this.halfmoveClock; s.fullmoveNumber = this.fullmoveNumber;
         s.history = this.history.slice();
         s.positionKeys = this.positionKeys.slice();
+        s.RepHistory = this.RepHistory; // shared read-only during search
         return s;
     }
 
@@ -154,6 +176,7 @@ export class GameState {
         s.canCastleBK = this.canCastleBK; s.canCastleBQ = this.canCastleBQ;
         s.enPassantRow = this.enPassantRow; s.enPassantCol = this.enPassantCol;
         s.halfmoveClock = this.halfmoveClock; s.fullmoveNumber = this.fullmoveNumber;
+        s.RepHistory = this.RepHistory; // shared read-only during search
         return s;
     }
 }

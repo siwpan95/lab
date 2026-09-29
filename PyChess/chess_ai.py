@@ -19,6 +19,10 @@ from chess_core import GameState, Move, Rules, SpecialMove
 # 索引：0=空 1=兵 2=马 3=象 4=车 5=后 6=王
 PieceValue = (0, 100, 320, 330, 500, 900, 0)
 
+# 重复惩罚：叶局面的 engine.mjs 兼容键出现在 rep_history（本局此前见过）中时，按出现次数
+# 扣分（白方视角）。引导搜索远离重复局面，减少三重复和棋。约半兵，足以影响平手选择而不弃子。
+REPETITION_PENALTY = 60
+
 # ---------------------------- 位置价值表 PST（白方视角） ----------------------------
 # 顺序固定为 row0..row7，每列 a..h（逐字复制 port_spec）
 PST_Pawn = (
@@ -143,6 +147,12 @@ class AIEngine:
                     score += PieceValue[idx] + AIEngine.get_pst(idx, pos)
                 else:
                     score -= PieceValue[idx] + AIEngine.get_pst(idx, (7 - r) * 8 + c)
+        # 重复惩罚：叶局面在 rep_history 中出现过 → 引导搜索规避重复、减少三重复和棋。
+        if state.rep_history:
+            key = state.position_key_simple()
+            cnt = state.rep_history.get(key)
+            if cnt:
+                score -= REPETITION_PENALTY * cnt
         return score
 
     @staticmethod

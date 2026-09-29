@@ -7,12 +7,14 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "rootDir": ".",
-    "outDir": "chess-cordis/drivers/ts/out"
+    "rootDir": "../../..",
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
   "include": [
-    "TsChess/chessCore.ts",
-    "TsChess/chessAI.ts",
-    "chess-cordis/drivers/ts/driver.ts"
+    "../../../TsChess/chessCore.ts",
+    "../../../TsChess/chessAI.ts",
+    "driver.ts",
+    "node-shims.d.ts"
   ]
 }

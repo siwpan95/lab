@@ -536,56 +536,67 @@ let evalProfileHash () =
 
 // ---------------------------- Tier 2-C 风格术语（白黑镜像差值） ----------------------------
 
-// 兵形分（白方视角差值）：叠兵 / 孤兵 / 通路兵。白方项减、黑方项加（负向项）。
-let pawnStructureScore (state: GameState) =
+// 兵形 / 王安全 / 双象三项合并计分（白方视角差值）。
+//
+// 性能门（2026-09-30）：最初按 JS/Go 参考实现写成三个独立函数，其中通路兵判定是
+// **逐兵嵌套扫描**（每兵最多 3×8=24 次棋盘查找），再加上王位两趟全盘扫描与双象一趟，
+// 使每叶评估开销暴涨约 6–7 倍；F# 的 depth-4 尖峰原本就接近 120s RPC 上限，于是
+// 第 16 局超时崩溃、18 局弃权。现改为**单趟棋盘扫描**一次性收集全部特征再计分
+// （含每 file 预计算的白兵最大行 / 黑兵最小行，把通路兵判定降为 O(1) 比较），
+// 判定语义与 JS/Go/Python 参考实现逐行同构。
+let positionalScore (state: GameState) =
     let b = state.Board
     let wCnt = Array.zeroCreate 8
     let bCnt = Array.zeroCreate 8
+    // 每 file 预计算：白兵最大行 / 黑兵最小行（无兵时分别取 -1 / 8）。
+    // 白兵 (r,c) 通路 ⇔ 各有效邻 file 的 bFirst[f] >= r；黑兵 ⇔ wLast[f] <= r。
+    let wLast = Array.create 8 -1
+    let bFirst = Array.create 8 8
     let wPawns = ResizeArray<int * int>()
     let bPawns = ResizeArray<int * int>()
+    let mutable wr = -1
+    let mutable wc = -1
+    let mutable br = -1
+    let mutable bc = -1
+    let mutable wBish = 0
+    let mutable bBish = 0
     for r in 0..7 do
         for c in 0..7 do
             match b.[r, c] with
-            | 'P' -> wCnt.[c] <- wCnt.[c] + 1; wPawns.Add(r, c)
-            | 'p' -> bCnt.[c] <- bCnt.[c] + 1; bPawns.Add(r, c)
+            | 'P' ->
+                wCnt.[c] <- wCnt.[c] + 1
+                wPawns.Add(r, c)
+                if r > wLast.[c] then wLast.[c] <- r
+            | 'p' ->
+                bCnt.[c] <- bCnt.[c] + 1
+                bPawns.Add(r, c)
+                if r < bFirst.[c] then bFirst.[c] <- r
+            | 'K' -> wr <- r; wc <- c
+            | 'k' -> br <- r; bc <- c
+            | 'B' -> wBish <- wBish + 1
+            | 'b' -> bBish <- bBish + 1
             | _ -> ()
     let mutable score = 0
+    // 叠兵：同线多出的每一个
     for c in 0..7 do
         if wCnt.[c] > 1 then score <- score - evalProfile.DoubledPawn * (wCnt.[c] - 1)
         if bCnt.[c] > 1 then score <- score + evalProfile.DoubledPawn * (bCnt.[c] - 1)
+    // 孤兵 + 通路兵
     for (r, c) in wPawns do
-        // 孤兵：左右相邻线均无己方兵
         if (c = 0 || wCnt.[c - 1] = 0) && (c = 7 || wCnt.[c + 1] = 0) then
             score <- score - evalProfile.IsolatedPawn
-        // 通路兵：同线与相邻线在自己前方（白 r-1..0 / 黑 r+1..7）无任何敌方兵
-        let mutable passed = true
-        for f in (max 0 (c - 1)) .. (min 7 (c + 1)) do
-            for rr in 0 .. r - 1 do
-                if b.[rr, f] = 'p' then passed <- false
-        if passed then score <- score + evalProfile.PassedPawnBase + evalProfile.PassedPawnPerRank * (6 - r)
+        if (c = 0 || bFirst.[c - 1] >= r) && bFirst.[c] >= r && (c = 7 || bFirst.[c + 1] >= r) then
+            score <- score + evalProfile.PassedPawnBase + evalProfile.PassedPawnPerRank * (6 - r)
     for (r, c) in bPawns do
         if (c = 0 || bCnt.[c - 1] = 0) && (c = 7 || bCnt.[c + 1] = 0) then
             score <- score + evalProfile.IsolatedPawn
-        let mutable passed = true
-        for f in (max 0 (c - 1)) .. (min 7 (c + 1)) do
-            for rr in r + 1 .. 7 do
-                if b.[rr, f] = 'P' then passed <- false
-        if passed then score <- score - (evalProfile.PassedPawnBase + evalProfile.PassedPawnPerRank * (r - 1))
-    score
-
-// 王安全分（白方视角差值）：王在老家（白 r>=6 / 黑 r<=1）时检查兵盾与敞开线。
-let kingSafetyScore (state: GameState) =
-    let b = state.Board
-    let (wr, wc) = findKing b true
-    let (br, bc) = findKing b false
-    if wr < 0 || br < 0 then 0
-    else
-        let mutable score = 0
+        if (c = 0 || wLast.[c - 1] <= r) && wLast.[c] <= r && (c = 7 || wLast.[c + 1] <= r) then
+            score <- score - (evalProfile.PassedPawnBase + evalProfile.PassedPawnPerRank * (r - 1))
+    // 王安全：兵盾 + 敞开线，仅王在老家（白 r>=6 / 黑 r<=1）时生效
+    if wr >= 0 && br >= 0 then
         if wr >= 6 then
-            // 王前方一行 3 格（王列 ±1，越界跳过）每缺一己方兵
             for c in (max 0 (wc - 1)) .. (min 7 (wc + 1)) do
                 if b.[wr - 1, c] <> 'P' then score <- score - evalProfile.PawnShieldMissing
-            // 王自家线在王前方无任何己方兵
             let mutable shielded = false
             for r in 0 .. wr - 1 do
                 if b.[r, wc] = 'P' then shielded <- true
@@ -597,19 +608,7 @@ let kingSafetyScore (state: GameState) =
             for r in br + 1 .. 7 do
                 if b.[r, bc] = 'p' then shielded <- true
             if not shielded then score <- score + evalProfile.PawnShieldOpenFile
-        score
-
-// 双象分（白方视角差值）。
-let bishopPairScore (state: GameState) =
-    let mutable wBish = 0
-    let mutable bBish = 0
-    for r in 0..7 do
-        for c in 0..7 do
-            match state.Board.[r, c] with
-            | 'B' -> wBish <- wBish + 1
-            | 'b' -> bBish <- bBish + 1
-            | _ -> ()
-    let mutable score = 0
+    // 双象
     if wBish >= 2 then score <- score + evalProfile.BishopPair
     if bBish >= 2 then score <- score - evalProfile.BishopPair
     score
@@ -629,9 +628,7 @@ let evaluate (state: GameState) =
                 else score <- score - v - pv
     // Tier 2-C 风格术语：白黑镜像差值（白方项加、黑方项减），
     // 保持「初始局面评估 = 0」的对称性不变量。
-    score <- score + pawnStructureScore state
-    score <- score + kingSafetyScore state
-    score <- score + bishopPairScore state
+    score <- score + positionalScore state
     // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
     match state.RepHistory with
     | Some rep ->

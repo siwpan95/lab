@@ -170,6 +170,11 @@ func main() {
 			// Read-only verification aid: returns the engine.mjs-compatible key of
 			// the requested FEN. Not used by the tournament runner.
 			send(out, map[string]interface{}{"id": req.ID, "ok": true, "key": s.PositionKeySimple()})
+		case "evalProfile":
+			// Read-only verification aid: returns this engine's Tier 2-C eval
+			// profile name and its djb2-32 hash (same algorithm as the harness).
+			send(out, map[string]interface{}{"id": req.ID, "ok": true,
+				"profile": EvalProfile.Name, "hash": ProfileHash()})
 		default:
 			send(out, map[string]interface{}{"id": req.ID, "ok": false, "error": "unknown cmd"})
 		}

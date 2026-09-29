@@ -129,6 +129,10 @@ let main _ =
                     // Read-only verification aid: returns the engine.mjs-compatible key
                     // of the requested FEN (must byte-match engine.mjs getPositionKey).
                     printfn "{\"id\":\"%s\",\"ok\":true,\"key\":\"%s\"}" (j id) (j (state.PositionKeySimple()))
+                | "evalProfile" ->
+                    // Read-only verification aid: returns this engine's Tier 2-C eval
+                    // profile name and its djb2-32 hash (same algorithm as the harness).
+                    printfn "{\"id\":\"%s\",\"ok\":true,\"profile\":\"%s\",\"hash\":\"%s\"}" (j id) (j evalProfile.Name) (evalProfileHash ())
                 | _ ->
                     printfn "{\"id\":\"%s\",\"ok\":false,\"error\":\"unknown cmd\"}" (j id)
                 Console.Out.Flush()

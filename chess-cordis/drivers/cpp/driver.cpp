@@ -1,7 +1,8 @@
 // chess-cordis harness-side driver for CppChess (NOT part of the engine).
 // Compiled together with the CppChess core (chess_core.cpp + chess_ai.cpp) — the
 // engine itself stays zero-dependency and cordis-unaware. Serves perft /
-// legalMoves / bestMove over line-delimited JSON on stdin/stdout.
+// legalMoves / bestMove / positionKey / evalProfile over line-delimited JSON
+// on stdin/stdout.
 //
 // Build (from chess-cordis):
 //   g++.exe -O2 -std=c++17 -I CppChess
@@ -175,6 +176,13 @@ int main() {
             // 只读校验辅助：返回所请求 FEN 的 engine.mjs 兼容键。
             cout << "{\"id\":\"" << id << "\",\"ok\":true,\"key\":\""
                  << s.PositionKeySimple() << "\"}\n";
+            cout.flush();
+        } else if (cmd == "evalProfile") {
+            // 只读校验辅助：返回本引擎的 Tier 2-C 评估档名与 djb2-32 哈希
+            // （与验收门 validate_eval_profile.mjs 同算法独立重算比对）。
+            cout << "{\"id\":\"" << id << "\",\"ok\":true,\"profile\":\""
+                 << AIEngine::ProfileName() << "\",\"hash\":\""
+                 << AIEngine::ProfileHash() << "\"}\n";
             cout.flush();
         } else {
             cout << "{\"id\":\"" << id << "\",\"ok\":false,\"error\":\"unknown cmd\"}\n";

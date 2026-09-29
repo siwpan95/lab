@@ -15,6 +15,24 @@
 
 #include "chess_core.h"
 #include <optional>
+#include <string>
+
+// ---------------------------- 评估风格档（Tier 2-C 批1 试点） ----------------------------
+// 与 JsChess/chessAI.js 的 EVAL_PROFILE / Go 版 EvalProfileSpec 同构：每引擎一份独立
+// profile，术语全部是白黑严格镜像差值（初始对称局面评估仍为 0）。字段顺序与
+// ProfileHash 的规范化串即契约，验收门 tournament/validate_eval_profile.mjs 用同一
+// djb2-32 算法独立重算比对。本引擎档位 = pawnstructure。
+struct EvalProfile {
+    static constexpr const char* name = "pawnstructure";
+    static constexpr int pawnShieldMissing  = 12; // 王处于老家（白 r>=6 / 黑 r<=1）时，王前 3 格每缺一兵
+    static constexpr int pawnShieldOpenFile = 8;  // 王自家线在王前方已无任何己方兵
+    static constexpr int doubledPawn        = 22; // 每个叠兵（同线多出的每一个）
+    static constexpr int isolatedPawn       = 25; // 每个孤兵（相邻线无己方兵）
+    static constexpr int passedPawnBase     = 25; // 通路兵基础分
+    static constexpr int passedPawnPerRank  = 10; // 通路兵每向升变推进一行的加成
+    static constexpr int bishopPair         = 25; // 双象
+    static constexpr int mobilityWeight     = 0;  // 预留：机动性每步权重（试点关闭）
+};
 
 class AIEngine {
 public:
@@ -27,6 +45,15 @@ public:
 
     // 局面评估（白方视角：正 = 白方占优）
     static int Evaluate(const GameState& state);
+
+    // Tier 2-C 风格术语（白黑镜像差值）：兵形 / 王安全 / 双象
+    static int PawnStructureScore(const GameState& state);
+    static int KingSafetyScore(const GameState& state);
+    static int BishopPairScore(const GameState& state);
+
+    // 本引擎评估档名与 djb2-32 哈希（规范化串 "name|w1|...|w8"）
+    static const char* ProfileName() { return EvalProfile::name; }
+    static std::string ProfileHash();
 
     // 主搜索：negamax + alpha-beta
     static int Negamax(const GameState& state, int depth, int alpha, int beta, int ply);

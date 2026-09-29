@@ -208,6 +208,11 @@ public class Driver {
                 } else if (cmd.equals("positionKey")) {
                     // 只读校验辅助：返回请求 FEN 的 engine.mjs 兼容键。
                     System.out.println("{\"id\":\"" + j(id) + "\",\"ok\":true,\"key\":\"" + j(state.PositionKeySimple()) + "\"}");
+                } else if (cmd.equals("evalProfile")) {
+                    // 只读校验辅助：返回本引擎的 Tier 2-C 评估档名与 djb2-32 哈希
+                    // （与验收门 validate_eval_profile.mjs 同一算法）。
+                    System.out.println("{\"id\":\"" + j(id) + "\",\"ok\":true,\"profile\":\"" + j(AIEngine.PROFILE_NAME)
+                            + "\",\"hash\":\"" + j(AIEngine.ProfileHash()) + "\"}");
                 } else {
                     System.out.println("{\"id\":\"" + j(id) + "\",\"ok\":false,\"error\":\"unknown cmd\"}");
                 }

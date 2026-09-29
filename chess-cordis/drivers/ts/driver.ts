@@ -115,6 +115,10 @@ function main() {
       } else if (cmd === 'positionKey') {
         // 只读校验辅助：返回请求 FEN 的 engine.mjs 兼容局面键。
         process.stdout.write(JSON.stringify({ id: rid, ok: true, key: state.PositionKeySimple() }) + '\n');
+      } else if (cmd === 'evalProfile') {
+        // 只读校验辅助：返回本引擎的 Tier 2-C 评估风格档名与 djb2-32 哈希
+        // （与验收门 validate_eval_profile.mjs 同一算法）。
+        process.stdout.write(JSON.stringify({ id: rid, ok: true, profile: AIEngine.ProfileName, hash: AIEngine.ProfileHash }) + '\n');
       } else {
         process.stdout.write(JSON.stringify({ id: rid, ok: false, error: 'unknown cmd' }) + '\n');
       }

@@ -23,6 +23,35 @@ PieceValue = (0, 100, 320, 330, 500, 900, 0)
 # 扣分（白方视角）。引导搜索远离重复局面，减少三重复和棋。约半兵，足以影响平手选择而不弃子。
 REPETITION_PENALTY = 60
 
+# ---------------------------- 评估风格档（Tier 2-C 批1 试点） ----------------------------
+# 与 JsChess/chessAI.js 的 EVAL_PROFILE 同构：每引擎一份独立 profile，术语全部是
+# 白黑严格镜像差值（初始对称局面评估仍为 0）。字段顺序与 eval_profile_hash 的规范化串即契约，
+# 验收门 tournament/validate_eval_profile.mjs 用同一 djb2-32 算法独立重算比对。
+# mobility_weight 为预留字段（0 = 关闭），试点只启用兵盾/兵形/双象三组术语。
+EVAL_PROFILE = {
+    "name": "gambit",
+    "pawnShieldMissing": 5,   # 王处于老家（白 r>=6 / 黑 r<=1）时，王前 3 格每缺一兵
+    "pawnShieldOpenFile": 3,  # 王自家线在王前方已无任何己方兵
+    "doubledPawn": 4,         # 每个叠兵（同线多出的每一个）
+    "isolatedPawn": 5,        # 每个孤兵（相邻线无己方兵）
+    "passedPawnBase": 10,     # 通路兵基础分
+    "passedPawnPerRank": 3,   # 通路兵每向升变推进一行的加成
+    "bishopPair": 8,          # 双象
+    "mobilityWeight": 0,      # 预留：机动性每步权重（试点关闭）
+}
+
+
+def eval_profile_hash(p: dict) -> str:
+    # profile 规范化串 + djb2-32 哈希，与 JS 侧 evalProfileHash 逐字节同算法。
+    s = "|".join(str(p[k]) for k in (
+        "name", "pawnShieldMissing", "pawnShieldOpenFile", "doubledPawn",
+        "isolatedPawn", "passedPawnBase", "passedPawnPerRank",
+        "bishopPair", "mobilityWeight"))
+    h = 5381
+    for ch in s:
+        h = (h * 33 + ord(ch)) & 0xFFFFFFFF
+    return "%08x" % h
+
 # ---------------------------- 位置价值表 PST（白方视角） ----------------------------
 # 顺序固定为 row0..row7，每列 a..h（逐字复制 port_spec）
 PST_Pawn = (
@@ -147,6 +176,9 @@ class AIEngine:
                     score += PieceValue[idx] + AIEngine.get_pst(idx, pos)
                 else:
                     score -= PieceValue[idx] + AIEngine.get_pst(idx, (7 - r) * 8 + c)
+        # Tier 2-C 风格术语：白黑镜像差值（白方项加、黑方项减），
+        # 保持「初始局面评估 = 0」的对称性不变量。
+        score += AIEngine.positional_score(state)
         # 重复惩罚：叶局面在 rep_history 中出现过 → 引导搜索规避重复、减少三重复和棋。
         if state.rep_history:
             key = state.position_key_simple()
@@ -159,6 +191,94 @@ class AIEngine:
     def _evaluate_side(state: GameState) -> int:
         s = AIEngine.evaluate(state)
         return s if state.whiteToMove else -s
+
+    # ---------------------------- Tier 2-C 风格术语（白黑镜像差值） ----------------------------
+    # 注：为满足深度 3 搜索 < 2 秒的性能门（python 是 10 引擎中最慢的），把兵形/王安全/
+    # 双象三项合并为**单遍棋盘扫描**：一次收集全部特征再计分，判定语义与 JS/Go 参考
+    # 实现逐行同构（叠兵/孤兵/通路兵/兵盾/敞开线/双象，白加黑减）。
+    @staticmethod
+    def positional_score(state: GameState) -> int:
+        W = EVAL_PROFILE
+        w_cnt = [0] * 8
+        b_cnt = [0] * 8
+        # 每 file 预计算：黑兵最小行 / 白兵最大行（无兵时分别取 8 / -1）。
+        # 白兵 (r,c) 通路 ⇔ 各有效邻 file 的 b_first[f] >= r；黑兵 ⇔ w_last[f] <= r。
+        b_first = [8] * 8
+        w_last = [-1] * 8
+        w_pawns: list[tuple[int, int]] = []
+        b_pawns: list[tuple[int, int]] = []
+        wk = bk = None
+        wb = bb = 0
+        for r, row in enumerate(state.board):
+            for c, p in enumerate(row):
+                if p == 'P':
+                    w_cnt[c] += 1
+                    w_pawns.append((r, c))
+                    if r > w_last[c]:
+                        w_last[c] = r
+                elif p == 'p':
+                    b_cnt[c] += 1
+                    b_pawns.append((r, c))
+                    if r < b_first[c]:
+                        b_first[c] = r
+                elif p == 'K':
+                    wk = (r, c)
+                elif p == 'k':
+                    bk = (r, c)
+                elif p == 'B':
+                    wb += 1
+                elif p == 'b':
+                    bb += 1
+        score = 0
+        # 叠兵
+        for c in range(8):
+            if w_cnt[c] > 1:
+                score -= W["doubledPawn"] * (w_cnt[c] - 1)
+            if b_cnt[c] > 1:
+                score += W["doubledPawn"] * (b_cnt[c] - 1)
+        # 孤兵 + 通路兵
+        passed_base, passed_rank = W["passedPawnBase"], W["passedPawnPerRank"]
+        for r, c in w_pawns:
+            if (c == 0 or w_cnt[c - 1] == 0) and (c == 7 or w_cnt[c + 1] == 0):
+                score -= W["isolatedPawn"]
+            if (c == 0 or b_first[c - 1] >= r) and b_first[c] >= r and (c == 7 or b_first[c + 1] >= r):
+                score += passed_base + passed_rank * (6 - r)
+        for r, c in b_pawns:
+            if (c == 0 or b_cnt[c - 1] == 0) and (c == 7 or b_cnt[c + 1] == 0):
+                score += W["isolatedPawn"]
+            if (c == 0 or w_last[c - 1] <= r) and w_last[c] <= r and (c == 7 or w_last[c + 1] <= r):
+                score -= passed_base + passed_rank * (r - 1)
+        # 王安全（兵盾 + 敞开线），仅王在老家时生效
+        if wk is not None and wk[0] >= 6:
+            r0, c0 = wk
+            for c in range(max(0, c0 - 1), min(7, c0 + 1) + 1):
+                if state.board[r0 - 1][c] != 'P':
+                    score -= W["pawnShieldMissing"]
+            shielded = False
+            for r in range(r0 - 1, -1, -1):
+                if state.board[r][c0] == 'P':
+                    shielded = True
+                    break
+            if not shielded:
+                score -= W["pawnShieldOpenFile"]
+        if bk is not None and bk[0] <= 1:
+            r0, c0 = bk
+            for c in range(max(0, c0 - 1), min(7, c0 + 1) + 1):
+                if state.board[r0 + 1][c] != 'p':
+                    score += W["pawnShieldMissing"]
+            shielded = False
+            for r in range(r0 + 1, 8):
+                if state.board[r][c0] == 'p':
+                    shielded = True
+                    break
+            if not shielded:
+                score += W["pawnShieldOpenFile"]
+        # 双象
+        if wb >= 2:
+            score += W["bishopPair"]
+        if bb >= 2:
+            score -= W["bishopPair"]
+        return score
 
     # ---------------------------- 走法排序（MVV-LVA） ----------------------------
     @staticmethod

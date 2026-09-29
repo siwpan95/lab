@@ -5,6 +5,43 @@
 
 use crate::chess_core::{GameState, Move, Rules};
 
+// ---------------------------- 评估风格档（Tier 2-C 批1 试点） ----------------------------
+// 与 JsChess/chessAI.js 的 EVAL_PROFILE 同构：每引擎一份独立 profile，术语全部是
+// 白黑严格镜像差值（初始对称局面评估仍为 0）。字段顺序与 profile_hash 的规范化串即契约，
+// 验收门 tournament/validate_eval_profile.mjs 用同一 djb2-32 算法独立重算比对。
+// mobilityWeight 为预留字段（0 = 关闭），试点只启用兵盾/兵形/双象三组术语。
+pub const EVAL_PROFILE_NAME: &str = "materialist";
+const EVAL_PAWN_SHIELD_MISSING: i32 = 8;  // 王处于老家（白 r>=6 / 黑 r<=1）时，王前 3 格每缺一兵
+const EVAL_PAWN_SHIELD_OPEN_FILE: i32 = 4; // 王自家线在王前方已无任何己方兵
+const EVAL_DOUBLED_PAWN: i32 = 6;          // 每个叠兵（同线多出的每一个）
+const EVAL_ISOLATED_PAWN: i32 = 8;         // 每个孤兵（相邻线无己方兵）
+const EVAL_PASSED_PAWN_BASE: i32 = 12;     // 通路兵基础分
+const EVAL_PASSED_PAWN_PER_RANK: i32 = 4;  // 通路兵每向升变推进一行的加成
+const EVAL_BISHOP_PAIR: i32 = 10;          // 双象
+const EVAL_MOBILITY_WEIGHT: i32 = 0;       // 预留：机动性每步权重（试点关闭）
+
+// profile_hash：profile 规范化串的 djb2-32，与 JS 侧 evalProfileHash 逐字节同算法。
+// 规范化串 = 各字段以 '|' 连接（整数无空格），字段顺序即哈希契约。
+pub fn profile_hash() -> String {
+    let s = format!(
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        EVAL_PROFILE_NAME,
+        EVAL_PAWN_SHIELD_MISSING,
+        EVAL_PAWN_SHIELD_OPEN_FILE,
+        EVAL_DOUBLED_PAWN,
+        EVAL_ISOLATED_PAWN,
+        EVAL_PASSED_PAWN_BASE,
+        EVAL_PASSED_PAWN_PER_RANK,
+        EVAL_BISHOP_PAIR,
+        EVAL_MOBILITY_WEIGHT
+    );
+    let mut h: u32 = 5381;
+    for b in s.as_bytes() {
+        h = h.wrapping_mul(33).wrapping_add(*b as u32);
+    }
+    format!("{:08x}", h)
+}
+
 // ---------------------------- 子力价值（厘兵单位） ----------------------------
 // 索引：0=空 1=兵 2=马 3=象 4=车 5=后 6=王
 const PIECE_VALUE: [i32; 7] = [0, 100, 320, 330, 500, 900, 0];
@@ -95,6 +132,11 @@ impl AIEngine {
                 }
             }
         }
+        // Tier 2-C 风格术语：白黑镜像差值（白方项加、黑方项减），
+        // 保持「初始局面评估 = 0」的对称性不变量。
+        score += Self::pawn_structure_score(state);
+        score += Self::king_safety_score(state);
+        score += Self::bishop_pair_score(state);
         // 重复惩罚：叶局面在 RepHistory 中出现过 → 引导搜索规避重复、减少三重复和棋。
         if let Some(rep) = &state.rep_history {
             let key = state.position_key_simple();
@@ -103,6 +145,184 @@ impl AIEngine {
                     score -= Self::REPETITION_PENALTY * cnt;
                 }
             }
+        }
+        score
+    }
+
+    // 兵形分（白方视角差值）：叠兵 / 孤兵 / 通路兵。
+    fn pawn_structure_score(state: &GameState) -> i32 {
+        let b = &state.board;
+        let mut w_cnt = [0i32; 8];
+        let mut b_cnt = [0i32; 8];
+        let mut w_pawns: Vec<(usize, usize)> = Vec::new();
+        let mut b_pawns: Vec<(usize, usize)> = Vec::new();
+        for r in 0..8usize {
+            for c in 0..8usize {
+                if b[r][c] == 'P' {
+                    w_cnt[c] += 1;
+                    w_pawns.push((r, c));
+                } else if b[r][c] == 'p' {
+                    b_cnt[c] += 1;
+                    b_pawns.push((r, c));
+                }
+            }
+        }
+        let mut score = 0;
+        for c in 0..8usize {
+            if w_cnt[c] > 1 {
+                score -= EVAL_DOUBLED_PAWN * (w_cnt[c] - 1);
+            }
+            if b_cnt[c] > 1 {
+                score += EVAL_DOUBLED_PAWN * (b_cnt[c] - 1);
+            }
+        }
+        for &(r, c) in &w_pawns {
+            let isolated = (c == 0 || w_cnt[c - 1] == 0) && (c == 7 || w_cnt[c + 1] == 0);
+            if isolated {
+                score -= EVAL_ISOLATED_PAWN;
+            }
+            let mut passed = true;
+            for f in (c as i32 - 1)..=(c as i32 + 1) {
+                if !(0..=7).contains(&f) {
+                    continue;
+                }
+                let f = f as usize;
+                let mut rr = r as i32 - 1;
+                while rr >= 0 {
+                    if b[rr as usize][f] == 'p' {
+                        passed = false;
+                        break;
+                    }
+                    rr -= 1;
+                }
+                if !passed {
+                    break;
+                }
+            }
+            if passed {
+                score += EVAL_PASSED_PAWN_BASE + EVAL_PASSED_PAWN_PER_RANK * (6 - r as i32);
+            }
+        }
+        for &(r, c) in &b_pawns {
+            let isolated = (c == 0 || b_cnt[c - 1] == 0) && (c == 7 || b_cnt[c + 1] == 0);
+            if isolated {
+                score += EVAL_ISOLATED_PAWN;
+            }
+            let mut passed = true;
+            for f in (c as i32 - 1)..=(c as i32 + 1) {
+                if !(0..=7).contains(&f) {
+                    continue;
+                }
+                let f = f as usize;
+                let mut rr = r as i32 + 1;
+                while rr <= 7 {
+                    if b[rr as usize][f] == 'P' {
+                        passed = false;
+                        break;
+                    }
+                    rr += 1;
+                }
+                if !passed {
+                    break;
+                }
+            }
+            if passed {
+                score -= EVAL_PASSED_PAWN_BASE + EVAL_PASSED_PAWN_PER_RANK * (r as i32 - 1);
+            }
+        }
+        score
+    }
+
+    // 王安全分（白方视角差值）：王在老家（白 r>=6 / 黑 r<=1）时检查兵盾与敞开线。
+    fn king_safety_score(state: &GameState) -> i32 {
+        let b = &state.board;
+        let mut wk: Option<(usize, usize)> = None;
+        let mut bk: Option<(usize, usize)> = None;
+        for r in 0..8usize {
+            for c in 0..8usize {
+                if b[r][c] == 'K' {
+                    wk = Some((r, c));
+                } else if b[r][c] == 'k' {
+                    bk = Some((r, c));
+                }
+            }
+        }
+        let (wk, bk) = match (wk, bk) {
+            (Some(w), Some(bl)) => (w, bl),
+            _ => return 0,
+        };
+        let mut score = 0;
+        if wk.0 >= 6 {
+            let kr = wk.0 as i32;
+            let kc = wk.1 as i32;
+            for c in (kc - 1)..=(kc + 1) {
+                if !(0..=7).contains(&c) {
+                    continue;
+                }
+                if b[(kr - 1) as usize][c as usize] != 'P' {
+                    score -= EVAL_PAWN_SHIELD_MISSING;
+                }
+            }
+            let mut shielded = false;
+            let mut r = kr - 1;
+            while r >= 0 {
+                if b[r as usize][wk.1] == 'P' {
+                    shielded = true;
+                    break;
+                }
+                r -= 1;
+            }
+            if !shielded {
+                score -= EVAL_PAWN_SHIELD_OPEN_FILE;
+            }
+        }
+        if bk.0 <= 1 {
+            let kr = bk.0 as i32;
+            let kc = bk.1 as i32;
+            for c in (kc - 1)..=(kc + 1) {
+                if !(0..=7).contains(&c) {
+                    continue;
+                }
+                if b[(kr + 1) as usize][c as usize] != 'p' {
+                    score += EVAL_PAWN_SHIELD_MISSING;
+                }
+            }
+            let mut shielded = false;
+            let mut r = kr + 1;
+            while r <= 7 {
+                if b[r as usize][bk.1] == 'p' {
+                    shielded = true;
+                    break;
+                }
+                r += 1;
+            }
+            if !shielded {
+                score += EVAL_PAWN_SHIELD_OPEN_FILE;
+            }
+        }
+        score
+    }
+
+    // 双象分（白方视角差值）。
+    fn bishop_pair_score(state: &GameState) -> i32 {
+        let b = &state.board;
+        let mut wb = 0;
+        let mut bb = 0;
+        for r in 0..8usize {
+            for c in 0..8usize {
+                if b[r][c] == 'B' {
+                    wb += 1;
+                } else if b[r][c] == 'b' {
+                    bb += 1;
+                }
+            }
+        }
+        let mut score = 0;
+        if wb >= 2 {
+            score += EVAL_BISHOP_PAIR;
+        }
+        if bb >= 2 {
+            score -= EVAL_BISHOP_PAIR;
         }
         score
     }

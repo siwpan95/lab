@@ -170,6 +170,13 @@ namespace ChessEngineDriver
                         // 只读校验辅助：返回该 FEN 的 engine.mjs 兼容局面键。
                         Emit("{\"id\":\"" + J(id) + "\",\"ok\":true,\"key\":\"" + J(state.PositionKeySimple()) + "\"}");
                     }
+                    else if (cmd == "evalProfile")
+                    {
+                        // 只读校验辅助：返回本引擎的 Tier 2-C 评估档名与 djb2-32 哈希
+                        //（与 harness 侧 validate_eval_profile.mjs 同算法）。
+                        Emit("{\"id\":\"" + J(id) + "\",\"ok\":true,\"profile\":\"" + J(AIEngine.ProfileName) +
+                             "\",\"hash\":\"" + J(AIEngine.ProfileHash()) + "\"}");
+                    }
                     else
                     {
                         Emit("{\"id\":\"" + J(id) + "\",\"ok\":false,\"error\":\"unknown cmd\"}");

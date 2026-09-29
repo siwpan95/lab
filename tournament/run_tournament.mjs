@@ -32,6 +32,7 @@ import {
 } from './engines.mjs';
 import { EngineClient } from './engine_client.mjs';
 import * as E from './engine.mjs';
+import { pickOpening, OPENING_PLIES_DEFAULT } from './opening_book.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPORTS_DIR = join(__dirname, 'reports');
@@ -83,22 +84,44 @@ async function probeEngine(cfg) {
 // Play one game. whiteEng / blackEng are EngineClient instances (with .id).
 // Returns an outcome object the report writer understands.
 // ---------------------------------------------------------------------------
-async function playGame(white, black, gameNo, whiteId, blackId, depth) {
+async function playGame(white, black, gameNo, whiteId, blackId, depth, openingPlies = 0) {
   let state = E.parseFen(START_FEN);
   const moves = [];          // annotated UCI (e.g. "e2e4", "f7f8q#")
   let ply = 0;
   let crashed = null;        // engine id that forfeited this game, if any
+  let openingName = null;    // name of the random opening pre-played, if any
+
+  // Pre-play a few RANDOM opening moves from the book before handing the position
+  // to the engines. All 10 engines share one material+PST evaluation (the PST
+  // weights are copied across languages), so identical starts make games converge
+  // and threefold draws dominate. Diversifying the start is the cheapest, safest
+  // lever to cut repetitive games — and it is 100% runner-side (no engine touched).
+  if (openingPlies > 0) {
+    try {
+      const op = pickOpening(openingPlies);
+      for (const uci of op.moves) {
+        state = E.applyUci(state, uci); // throws if illegal -> caught below
+        moves.push(uci);
+        ply++;
+      }
+      openingName = op.name;
+    } catch (e) {
+      // Book lines are pre-validated at import, but never let a bad opening abort a game.
+      log(`  [warn] opening book apply failed for ${whiteId}-${blackId}: ${e.message}`);
+      openingName = null;
+    }
+  }
 
   while (ply < MAX_PLY) {
     // Terminal / draw checks BEFORE asking an engine for a move.
     if (E.isCheckmate(state)) {
       // side to move is mated → opponent wins
       const winner = state.whiteToMove ? blackId : whiteId;
-      return { result: 'win', winner, loser: state.whiteToMove ? whiteId : blackId,
+      return { opening: openingName, result: 'win', winner, loser: state.whiteToMove ? whiteId : blackId,
                moves, ply, reason: 'checkmate', crashed };
     }
     if (E.isStalemate(state)) {
-      return { result: 'draw', winner: null, loser: null, moves, ply,
+      return { opening: openingName, result: 'draw', winner: null, loser: null, moves, ply,
                reason: 'stalemate', crashed };
     }
     if (E.isDraw(state)) {
@@ -107,7 +130,7 @@ async function playGame(white, black, gameNo, whiteId, blackId, depth) {
       if (E.isFiftyMoveDraw(state)) why = 'fifty-move';
       else if (E.isThreefold(state)) why = 'threefold';
       else if (E.isInsufficientMaterial(state)) why = 'insufficient-material';
-      return { result: 'draw', winner: null, loser: null, moves, ply, reason: why, crashed };
+      return { opening: openingName, result: 'draw', winner: null, loser: null, moves, ply, reason: why, crashed };
     }
 
     const moverWhite = state.whiteToMove;
@@ -122,7 +145,7 @@ async function playGame(white, black, gameNo, whiteId, blackId, depth) {
       crashed = engId;
       eng.kill();
       const winner = moverWhite ? blackId : whiteId;
-      return { result: 'win', winner, loser: engId, moves, ply,
+      return { opening: openingName, result: 'win', winner, loser: engId, moves, ply,
                reason: `engine error (${e.message})`, crashed };
     }
 
@@ -131,7 +154,7 @@ async function playGame(white, black, gameNo, whiteId, blackId, depth) {
       crashed = engId;
       eng.kill();
       const winner = moverWhite ? blackId : whiteId;
-      return { result: 'win', winner, loser: engId, moves, ply,
+      return { opening: openingName, result: 'win', winner, loser: engId, moves, ply,
                reason: `engine returned no move (${JSON.stringify(uci)})`, crashed };
     }
 
@@ -143,7 +166,7 @@ async function playGame(white, black, gameNo, whiteId, blackId, depth) {
       crashed = engId;
       eng.kill();
       const winner = moverWhite ? blackId : whiteId;
-      return { result: 'win', winner, loser: engId, moves, ply,
+      return { opening: openingName, result: 'win', winner, loser: engId, moves, ply,
                reason: `engine returned ILLEGAL move ${uci} (${e.message})`, crashed };
     }
 
@@ -156,7 +179,7 @@ async function playGame(white, black, gameNo, whiteId, blackId, depth) {
   }
 
   // Hit MAX_PLY without a decisive result → adjudicated draw.
-  return { result: 'draw', winner: null, loser: null, moves, ply,
+  return { opening: openingName, result: 'draw', winner: null, loser: null, moves, ply,
            reason: `max-ply (${MAX_PLY}) reached`, crashed };
 }
 
@@ -296,13 +319,14 @@ function appendToFile(file, text) {
 // Write the header + environment + participant tables. `totalGames` is known up
 // front (pairs × gamesPerPair) so it goes in the header; the actual total time
 // is only known at the end and is written by reportFooter.
-function writeReportHeader({ reportFile, date, env, participants, disabled, gamesPerPair, depth, totalGames }) {
+function writeReportHeader({ reportFile, date, env, participants, disabled, gamesPerPair, depth, totalGames, openingPlies }) {
   const lines = [];
   lines.push(`# 跨语言国际象棋循环赛战报`);
   lines.push('');
   lines.push(`- **日期**： ${date}`);
   lines.push(`- **赛制**： 循环赛（round-robin），每对交手 ${gamesPerPair} 局（交换先后手）`);
   lines.push(`- **搜索深度**： ${depth}（每步）`);
+  lines.push(`- **开局库**： ${openingPlies > 0 ? `启用（每局随机预走 ${openingPlies} 步）` : '关闭'}`);
   lines.push(`- **半步上限**： ${MAX_PLY}（超限判和）`);
   lines.push(`- **对局总数**： ${totalGames}`);
   lines.push('');
@@ -350,6 +374,10 @@ function appendPairSection({ reportFile, a, b, participants, pairGames, gamesPer
     if (!game) break; // 防御：对局数少于预期时不要越界读
     const res = describeGame(game, whiteId, blackId);
     lines.push(`**第 ${g + 1} 局** （${whiteId} 执白， ${blackId} 执黑） — ${res}`);
+    if (game.opening) {
+      lines.push('');
+      lines.push(`> 开局： ${game.opening}`);
+    }
     if (game.moves.length) {
       lines.push('');
       lines.push('> ' + game.moves.join(' '));
@@ -364,7 +392,7 @@ function appendPairSection({ reportFile, a, b, participants, pairGames, gamesPer
 }
 
 // Append the leaderboard, anomalies and footer (called once at the end).
-function reportFooter({ reportFile, scores, anomalies, elapsedMs }) {
+function reportFooter({ reportFile, scores, anomalies, elapsedMs, metrics }) {
   const lines = [];
   lines.push(`## 总积分榜`);
   lines.push('');
@@ -378,6 +406,28 @@ function reportFooter({ reportFile, scores, anomalies, elapsedMs }) {
   lines.push('');
   lines.push(`- **总耗时**： ${(elapsedMs / 1000).toFixed(1)} 秒`);
   lines.push('');
+
+  // 多样性指标：和棋率 / 三重复率 / 平均手数 / 开局分布。直接反映"减少三重复和棋"的
+  // 目标是否达成——开局库启用后，三重复率应显著下降、平均手数上升。
+  if (metrics && metrics.totalGames > 0) {
+    const m = metrics;
+    const drawRate = (100 * m.draws / m.totalGames).toFixed(1);
+    const tfRate = (100 * m.threefold / m.totalGames).toFixed(1);
+    lines.push(`## 多样性指标`);
+    lines.push('');
+    lines.push(`- 对局总数： ${m.totalGames}`);
+    lines.push(`- 和棋： ${m.draws}（${drawRate}%）`);
+    lines.push(`- 三重复和棋： ${m.threefold}（${tfRate}%）`);
+    lines.push(`- 平均手数： ${m.avgPlies.toFixed(1)}`);
+    if (m.openingDist && Object.keys(m.openingDist).length) {
+      lines.push(`- 开局分布：`);
+      for (const [name, cnt] of Object.entries(m.openingDist).sort((a, b) => b[1] - a[1])) {
+        lines.push(`  - ${name}：${cnt}`);
+      }
+    }
+    lines.push('');
+  }
+
   if (anomalies.length) {
     lines.push(`## 异常记录`);
     lines.push('');
@@ -402,6 +452,8 @@ async function main() {
     ? Number(process.env.TOURNAMENT_DEPTH) : TOURNAMENT_DEPTH;
   const gamesOverride = process.env.GAMES_PER_PAIR
     ? Number(process.env.GAMES_PER_PAIR) : GAMES_PER_PAIR;
+  const openingPlies = process.env.OPENING_PLIES
+    ? Number(process.env.OPENING_PLIES) : OPENING_PLIES_DEFAULT;
   const filterEnv = process.env.ENGINES_FILTER ? process.env.ENGINES_FILTER.split(',') : null;
 
   // --- environment snapshot ---
@@ -486,6 +538,7 @@ async function main() {
     reportFile, date: nowStr(),
     env: { node: nodeVer, python: pyVer, cwd: process.cwd(), platform: process.platform },
     participants, disabled, gamesPerPair: gamesOverride, depth: depthOverride, totalGames: total,
+    openingPlies,
   });
 
   for (const [a, b] of pairs) {
@@ -513,7 +566,7 @@ async function main() {
         continue;
       }
 
-      const game = await playGame(whiteCli, blackCli, games.length + 1, whiteId, blackId, depthOverride);
+      const game = await playGame(whiteCli, blackCli, games.length + 1, whiteId, blackId, depthOverride, openingPlies);
       games.push(game);
 
       // scoring
@@ -551,13 +604,23 @@ async function main() {
   //  game that crashed, the NEXT game referencing the dead client will forfeit
   //  too — so the loop naturally cascades. No extra pass needed.)
 
+  // --- diversity metrics (feeds the "减少三重复和棋" goal) ---
+  const totalGames = games.length;
+  const draws = games.filter((g) => g.result === 'draw').length;
+  const threefold = games.filter((g) => g.result === 'draw' && g.reason === 'threefold').length;
+  const totalPlies = games.reduce((s, g) => s + (g.moves ? g.moves.length : 0), 0);
+  const avgPlies = totalGames ? totalPlies / totalGames : 0;
+  const openingDist = {};
+  for (const g of games) if (g.opening) openingDist[g.opening] = (openingDist[g.opening] || 0) + 1;
+  const metrics = { totalGames, draws, threefold, avgPlies, openingDist };
+
   // --- leaderboard ---
   const scores = [...scoreMap.values()].sort((x, y) =>
     y.score - x.score || y.win - x.win || x.loss - y.loss);
 
   // finalize the report: leaderboard + anomalies + total time (header & per-pair
   // sections were already written incrementally during the run).
-  reportFooter({ reportFile, scores, anomalies, elapsedMs: Date.now() - startWall });
+  reportFooter({ reportFile, scores, anomalies, elapsedMs: Date.now() - startWall, metrics });
 
   // --- cleanup ---
   for (const cli of clients.values()) cli.kill();

@@ -106,14 +106,42 @@ const JAVA = envOr('LAB_JAVA', 'java');
 // 引擎侧 timeMs 缺省/0 时行为与 Tier 2-B 之前完全一致，所以这是“打开”开关而非改变语义。
 // 覆盖方式：环境变量 TIME_PER_MOVE_MS（无人值守任务建议写进 tournament/local.env）。
 // 注意（2026-09-30）：预算过紧会压低慢引擎（py 实测 depth-3 ≈1.7s）的有效深度。
-// 默认 **0（关闭）** —— 依据实测：开启 3000ms 后，慢引擎被压到更浅的有效深度
-// （py 从 9.5 分掉到 5.0 分、0 胜），三重复率反而由 43.1% 回升到 51.4%、
-// 决定性局由 51.4% 降到 41.7%，**与"减少三重复"的目标相反**。
-// 时间控制能力已实装并验收（见 tournament/validate_timectrl.mjs），按需显式开启：
-//   TIME_PER_MOVE_MS=8000 等（或写进 tournament/local.env）
-// 参考量级：py depth-3 ≈1.7s、fs depth-4 尖峰 ≈39s，故任何"只对快引擎无感"的
-// 预算都会压到 py/fs；要真正不伤慢引擎需 10s 以上量级（待测）。
-export const TIME_PER_MOVE_MS = Number(envOr('TIME_PER_MOVE_MS', 0)) || 0;
+// 全局覆盖开关：**设置了就对所有引擎生效**（0 = 完全关闭时间控制）；
+// **未设置（-1）则使用下面的每引擎预算表**（默认，推荐）。
+export const TIME_PER_MOVE_MS = (() => {
+  const raw = envOr('TIME_PER_MOVE_MS', null);
+  return raw === null ? -1 : (Number(raw) || 0);
+})();
+
+// ---------------------------- 每引擎时间预算（Tier 2-B） ----------------------------
+// 依据 `measure_engine_timing.mjs` 实测的 depth=4 无预算峰值 ×2（并设下限），
+// 使预算在**常规对局中永不触发** —— 时间控制退化为「安全阀」：不改变棋力与结果，
+// 只在病态长考时优雅中断（返回上一轮完整深度的着法），避免超时判负。
+//
+// 硬约束：预算必须 **小于该引擎的 RPC timeout**，否则预算还没生效就已被判超时。
+//   fs 的 Kiwipete 峰值实测 129.3s > 其 120s RPC 上限（历史上就在这里崩、丢 18 局），
+//   故 fs 压到 60s：常规 5.3s 不受影响，129s 病态思考被截断 → 优雅降级而非弃权。
+//
+// 实测峰值（ms）：rust 492 / cs 2413 / java 2531 / go 2569 / cpp 4111 /
+//                 vb 8148 / js 8186 / ts 14731 / py 49301 / fs 5311(尖峰 129337)
+export const ENGINE_TIME_MS = {
+  rust: 3_000,
+  cs: 6_000,
+  java: 6_000,
+  go: 6_000,
+  cpp: 10_000,
+  vb: 20_000,
+  js: 20_000,
+  ts: 30_000,
+  py: 90_000,   // < py 的 RPC timeout 180000
+  fs: 60_000,   // < fs 的 RPC timeout 120000（关键：把崩溃转成优雅降级）
+};
+
+// 取某引擎本次应下发的每步预算（毫秒）。
+export function timeBudgetFor(engineId) {
+  if (TIME_PER_MOVE_MS >= 0) return TIME_PER_MOVE_MS; // 全局覆盖（含 0=关闭）
+  return ENGINE_TIME_MS[engineId] ?? 0;
+}
 
 export const ENGINES = [
   {

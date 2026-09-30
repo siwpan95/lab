@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
-  ENGINES, TOURNAMENT_DEPTH, MAX_PLY, GAMES_PER_PAIR, TIME_PER_MOVE_MS, START_FEN,
+  ENGINES, TOURNAMENT_DEPTH, MAX_PLY, GAMES_PER_PAIR, TIME_PER_MOVE_MS, timeBudgetFor, START_FEN,
 } from './engines.mjs';
 import { EngineClient } from './engine_client.mjs';
 import * as E from './engine.mjs';
@@ -142,7 +142,10 @@ async function playGame(white, black, gameNo, whiteId, blackId, depth, openingPl
       // history = positions seen so far (all but the current one) so engines can
       // penalize moving back into an already-played position (anti-threefold).
       const history = state.keys.slice(0, -1);
-      uci = await eng.bestMove(E.serializeFen(state), depth, history, TIME_PER_MOVE_MS);
+      // 每步预算：默认取该引擎自己的预算（安全阀，常规对局不触发）；
+      // 设了 TIME_PER_MOVE_MS 则全局覆盖（0 = 关闭时间控制）。
+      const budget = timeBudgetFor(eng.cfg.id);
+      uci = await eng.bestMove(E.serializeFen(state), depth, history, budget);
     } catch (e) {
       // timeout / crash / subprocess error → forfeit this game, kill engine.
       crashed = engId;

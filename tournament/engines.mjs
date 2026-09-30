@@ -106,11 +106,22 @@ const JAVA = envOr('LAB_JAVA', 'java');
 // 引擎侧 timeMs 缺省/0 时行为与 Tier 2-B 之前完全一致，所以这是“打开”开关而非改变语义。
 // 覆盖方式：环境变量 TIME_PER_MOVE_MS（无人值守任务建议写进 tournament/local.env）。
 // 注意（2026-09-30）：预算过紧会压低慢引擎（py 实测 depth-3 ≈1.7s）的有效深度。
-// 全局覆盖开关：**设置了就对所有引擎生效**（0 = 完全关闭时间控制）；
-// **未设置（-1）则使用下面的每引擎预算表**（默认，推荐）。
+// 时间控制开关（默认 **关闭**）：
+//   TIME_PER_MOVE_MS=<ms>        全局统一预算（对所有引擎生效）
+//   TIME_PER_MOVE_MODE=perEngine 使用下面的每引擎预算表
+//   两者都不设 ⇒ 0（完全关闭，走原固定深度搜索）
+//
+// 为什么默认关闭（实测依据，2026-09-30 三轮全量对照，9 引擎互弈口径）：
+//   TC 关闭          三重复 43.1% / 决定性 51.4%   ← 最优
+//   全局 3000ms      三重复 51.4% / 决定性 41.7%
+//   每引擎预算       三重复 59.7% / 决定性 30.6%   ← 最差（本轮确认赛）
+// 即：**任何会实际触发的预算都会压低有效深度 → 更多重复**。
+// 注意 4 局面小样本曾得出"预算不触发"的误判：真实赛事是数千个局面，
+// 必然出现比取样更重的局面。故每引擎表仅作**显式开启的崩溃保护**用。
 export const TIME_PER_MOVE_MS = (() => {
-  const raw = envOr('TIME_PER_MOVE_MS', null);
-  return raw === null ? -1 : (Number(raw) || 0);
+  const mode = String(envOr('TIME_PER_MOVE_MODE', '')).toLowerCase();
+  if (mode === 'perengine' || mode === 'per-engine') return -1; // -1 = 用每引擎表
+  return Number(envOr('TIME_PER_MOVE_MS', 0)) || 0;
 })();
 
 // ---------------------------- 每引擎时间预算（Tier 2-B） ----------------------------

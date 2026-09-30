@@ -136,6 +136,40 @@ function GetPST(pieceIdx, pos) {
     }
 }
 
+// ---------------------------- Tier 2-B 时间控制 ----------------------------
+// 迭代加深 + 软/硬双阈值：
+//   · 软阈值：开新一轮深度前检查（已用时间 >= 预算×SOFT_FRACTION 就不再开新轮），
+//     避免"明知做不完还开局"；
+//   · 硬阈值：搜索过程中按节点数周期检查（每 NODES_PER_TIME_CHECK 个节点），
+//     超限立即中断；被中断的那一轮**结果作废**，只采用上一轮完整深度的结果。
+// 这样保证返回的着法始终来自一次完整搜索，绝不会因为中断返回半成品。
+// timeMs <= 0（或缺省请求）时完全不启用，走原来的固定深度搜索路径。
+const NODES_PER_TIME_CHECK = 2048;
+const SOFT_FRACTION = 0.5;
+
+class SearchClock {
+    constructor(limitMs) {
+        this.limit = limitMs;
+        this.start = Date.now();
+        this.softMs = this.start + limitMs * SOFT_FRACTION;
+        this.nodes = 0;
+        this.aborted = false;
+    }
+    // 软阈值：是否不该再开新一轮深度
+    overSoft() { return Date.now() >= this.softMs; }
+    // 硬阈值：每 NODES_PER_TIME_CHECK 个节点查一次；超限置 aborted
+    tick() {
+        this.nodes++;
+        if ((this.nodes & (NODES_PER_TIME_CHECK - 1)) === 0) {
+            if (Date.now() - this.start >= this.limit) this.aborted = true;
+        }
+        return this.aborted;
+    }
+}
+
+// 当前搜索的时钟（无时间控制时为 null）
+let searchClock = null;
+
 export class AIEngine {
     static get MateScore() { return 900000; }
     static get Infinity() { return 1000000; }
@@ -282,6 +316,8 @@ export class AIEngine {
 
     // 静态搜索（quiescence）
     static Quiescence(state, alpha, beta, qdepth) {
+        // Tier 2-B：同 Negamax，途中按节点数检查硬阈值。
+        if (searchClock && searchClock.tick()) return alpha;
         const stand = AIEngine.EvaluateSide(state);
         if (stand >= beta) return beta;
         if (stand > alpha) alpha = stand;
@@ -304,6 +340,8 @@ export class AIEngine {
 
     // 主搜索：negamax + alpha-beta
     static Negamax(state, depth, alpha, beta, ply) {
+        // Tier 2-B：硬阈值按节点数周期检查，超限立即中断（未完成的一轮会被丢弃）。
+        if (searchClock && searchClock.tick()) return alpha;
         const moves = Rules.GenerateAllLegalMoves(state);
 
         if (moves.length === 0) {
@@ -329,14 +367,9 @@ export class AIEngine {
         return best;
     }
 
-    // 对外接口：求最佳走法（无合法走法时为 null）
-    static FindBestMove(state, depth) {
-        const moves = Rules.GenerateAllLegalMoves(state);
-        if (moves.length === 0) return null;
-        if (moves.length === 1) return moves[0];
-
+    // 根结点一轮搜索（给定深度）。返回最佳走法。
+    static SearchRoot(state, moves, depth) {
         AIEngine.OrderMoves(moves);
-
         let bestMove = moves[0];
         let bestScore = -AIEngine.Infinity;
         let alpha = -AIEngine.Infinity;
@@ -346,6 +379,7 @@ export class AIEngine {
             const child = state.CloneLight();
             Rules.ApplyMove(child, m, false);
             const score = -AIEngine.Negamax(child, depth - 1, -beta, -alpha, 1);
+            if (searchClock && searchClock.aborted) break; // 硬阈值中断：丢弃本轮
             if (score > bestScore) {
                 bestScore = score;
                 bestMove = m;
@@ -353,5 +387,44 @@ export class AIEngine {
             if (score > alpha) alpha = score;
         }
         return bestMove;
+    }
+
+    // 对外接口：求最佳走法（无合法走法时为 null）
+    // timeMs > 0 时启用 Tier 2-B 时间控制（迭代加深 + 软/硬双阈值）；
+    // timeMs <= 0 / 缺省 时走原来的固定深度单次搜索，结果与改造前逐字节一致。
+    static FindBestMove(state, depth, timeMs) {
+        const moves = Rules.GenerateAllLegalMoves(state);
+        if (moves.length === 0) return null;
+        if (moves.length === 1) return moves[0];
+
+        const budget = Number.isFinite(timeMs) && timeMs > 0 ? timeMs : 0;
+        const cap = depth > 0 ? depth : 3;
+
+        if (budget <= 0 || cap <= 1) {
+            // 原路径：固定深度单次搜索（不含任何时钟开销）
+            const prev = searchClock;
+            searchClock = null;
+            const mv = AIEngine.SearchRoot(state, moves.slice(), cap);
+            searchClock = prev;
+            return mv;
+        }
+
+        // 迭代加深：d = 1..cap，软阈值管“是否开新一轮”，硬阈值管“中断当前轮”。
+        searchClock = new SearchClock(budget);
+        let bestMove = moves[0];
+        let completed = false; // 是否已至少完成一轮（中断时回退到它）
+        try {
+            for (let d = 1; d <= cap; d++) {
+                if (completed && searchClock.overSoft()) break;
+                searchClock.aborted = false;
+                const mv = AIEngine.SearchRoot(state, moves.slice(), d);
+                if (searchClock.aborted && completed) break; // 丢弃未完成的这一轮
+                bestMove = mv;
+                completed = true;
+            }
+        } finally {
+            searchClock = null;
+        }
+        return bestMove; // 至少完成过 depth=1 的一轮，必为合法着法
     }
 }

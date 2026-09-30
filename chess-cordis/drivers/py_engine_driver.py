@@ -95,6 +95,11 @@ def main() -> None:
         cmd = req.get("cmd")
         fen = req.get("fen", "")
         depth = int(req.get("depth", 0))
+        # Tier 2-B：可选的每步时间预算（毫秒）。缺省/0 ⇒ 固定深度搜索，行为与改造前一致。
+        try:
+            time_ms = float(req.get("timeMs", 0) or 0)
+        except (TypeError, ValueError):
+            time_ms = 0.0
         rid = req.get("id", "")
         try:
             state = from_fen(fen)
@@ -111,7 +116,7 @@ def main() -> None:
                     for k in history:
                         rep[k] = rep.get(k, 0) + 1
                     state.rep_history = rep
-                mv = AIEngine.find_best_move(state, depth if depth > 0 else 2)
+                mv = AIEngine.find_best_move_timed(state, depth if depth > 0 else 2, time_ms)
                 print(json.dumps({"id": rid, "ok": True, "move": move_to_uci(mv) if mv else None, "score": 0}), flush=True)
             elif cmd == "positionKey":
                 # 只读校验辅助：返回所请求 FEN 的 engine.mjs 兼容局面键。

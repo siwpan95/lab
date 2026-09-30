@@ -9,6 +9,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"time"
 )
 
 // ---------------------------- 常量 ----------------------------
@@ -391,6 +392,10 @@ func OrderMoves(moves []Move) {
 
 // ---------------------------- 静态搜索（quiescence） ----------------------------
 func Quiescence(state *GameState, alpha, beta, qdepth int) int {
+	// Tier 2-B：同 Negamax，途中按节点数检查硬阈值。
+	if clockTick() {
+		return alpha
+	}
 	stand := evaluateSide(state)
 	if stand >= beta {
 		return beta
@@ -424,8 +429,62 @@ func Quiescence(state *GameState, alpha, beta, qdepth int) int {
 	return alpha
 }
 
+// ---------------------------- Tier 2-B 时间控制 ----------------------------
+// 迭代加深 + 软/硬双阈值（与 JsChess/chessAI.js 的 SearchClock 同构）：
+//   · 软阈值：开新一轮深度前检查（已用时间 >= 预算/2 就不再开新轮）；
+//   · 硬阈值：搜索中每 nodesPerTimeCheck 个节点检查一次，超限置 aborted；
+//     被中断的那一轮**结果作废**，只采用上一轮完整深度的结果，
+//     从而保证返回的着法始终来自一次完整搜索。
+// timeMs <= 0 时 clock == nil，完全不启用（走原固定深度路径，行为不变）。
+const (
+	nodesPerTimeCheck = 2048
+	softNumerator     = 1
+	softDenominator   = 2 // 软阈值 = 预算 × 1/2
+)
+
+type searchClock struct {
+	limitMs int64
+	startMs int64
+	softMs  int64
+	nodes   int64
+	aborted bool
+}
+
+var clock *searchClock
+
+// beginClock 启动（timeMs>0）或关闭（timeMs<=0）时间控制。
+func beginClock(timeMs int64) {
+	if timeMs <= 0 {
+		clock = nil
+		return
+	}
+	now := time.Now().UnixMilli()
+	clock = &searchClock{limitMs: timeMs, startMs: now, softMs: now + timeMs*softNumerator/softDenominator}
+}
+
+// clockTick 每 nodesPerTimeCheck 个节点查一次硬阈值。
+func clockTick() bool {
+	if clock == nil {
+		return false
+	}
+	clock.nodes++
+	if clock.nodes%nodesPerTimeCheck == 0 && time.Now().UnixMilli()-clock.startMs >= clock.limitMs {
+		clock.aborted = true
+	}
+	return clock.aborted
+}
+
+// clockOverSoft 软阈值：是否不该再开新一轮深度。
+func clockOverSoft() bool {
+	return clock != nil && time.Now().UnixMilli() >= clock.softMs
+}
+
 // ---------------------------- 主搜索：negamax + alpha-beta ----------------------------
 func Negamax(state *GameState, depth, alpha, beta, ply int) int {
+	// Tier 2-B：硬阈值按节点数周期检查，超限立即中断（未完成的一轮会被丢弃）。
+	if clockTick() {
+		return alpha
+	}
 	moves := GenerateAllLegalMoves(state)
 	if len(moves) == 0 {
 		if IsInCheck(state, state.WhiteToMove) {
@@ -458,28 +517,21 @@ func Negamax(state *GameState, depth, alpha, beta, ply int) int {
 }
 
 // ---------------------------- 对外接口：求最佳走法 ----------------------------
-// 无合法走法返回 nil；仅一步直接返回；否则 alpha-beta 搜索取最优。
-func FindBestMove(state *GameState, depth int) *Move {
-	moves := GenerateAllLegalMoves(state)
-	if len(moves) == 0 {
-		return nil
-	}
-	if len(moves) == 1 {
-		m := moves[0]
-		res := m
-		return &res
-	}
 
+// searchRoot 根结点一轮搜索（给定深度），返回最佳走法。
+func searchRoot(state *GameState, moves []Move, depth int) Move {
 	OrderMoves(moves)
-
 	bestScore := -Infinity
 	alpha := -Infinity
 	beta := Infinity
-	var bestMove Move
+	bestMove := moves[0]
 	for _, m := range moves {
 		child := state.CloneLight()
 		ApplyMove(&child, m, false)
 		score := -Negamax(&child, depth-1, -beta, -alpha, 1)
+		if clock != nil && clock.aborted {
+			break // 硬阈值中断：本轮作废
+		}
 		if score > bestScore {
 			bestScore = score
 			bestMove = m
@@ -488,6 +540,56 @@ func FindBestMove(state *GameState, depth int) *Move {
 			alpha = score
 		}
 	}
-	res := bestMove
-	return &res
+	return bestMove
+}
+
+// FindBestMoveTimed 时间受控的最佳走法。
+// timeMs > 0 时启用迭代加深（软/硬双阈值）；timeMs <= 0 时走原来的固定深度单次搜索，
+// 结果与改造前完全一致。
+func FindBestMoveTimed(state *GameState, depth, timeMs int) *Move {
+	moves := GenerateAllLegalMoves(state)
+	if len(moves) == 0 {
+		return nil
+	}
+	if len(moves) == 1 {
+		res := moves[0]
+		return &res
+	}
+	cap := depth
+	if cap <= 0 {
+		cap = 3
+	}
+
+	if timeMs <= 0 || cap <= 1 {
+		// 原路径：固定深度单次搜索（不含任何时钟开销）
+		prev := clock
+		clock = nil
+		res := searchRoot(state, moves, cap)
+		clock = prev
+		return &res
+	}
+
+	// 迭代加深：d = 1..cap
+	beginClock(int64(timeMs))
+	bestMove := moves[0]
+	completed := false
+	for d := 1; d <= cap; d++ {
+		if completed && clockOverSoft() {
+			break
+		}
+		clock.aborted = false
+		mv := searchRoot(state, append([]Move(nil), moves...), d)
+		if clock.aborted && completed {
+			break // 丢弃未完成的这一轮
+		}
+		bestMove = mv
+		completed = true
+	}
+	clock = nil
+	return &bestMove // 至少完成过 depth=1 的一轮，必为合法着法
+}
+
+// FindBestMove 无时间控制的固定深度搜索（保持原有调用约定）。
+func FindBestMove(state *GameState, depth int) *Move {
+	return FindBestMoveTimed(state, depth, 0)
 }

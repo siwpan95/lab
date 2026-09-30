@@ -319,9 +319,66 @@ namespace ChessEngine
             moves.Sort((a, b) => MoveOrderScore(b) - MoveOrderScore(a));
         }
 
+        // ---------------------------- Tier 2-B 时间控制 ----------------------------
+        // 迭代加深 + 软/硬双阈值（与 JsChess/chessAI.js 的 SearchClock、drivers/go 的
+        // searchClock 同构）：
+        //   · 软阈值 = 预算 × SOFT_NUMERATOR / SOFT_DENOMINATOR：开新一轮深度前检查，
+        //     已用时间达到就不再开新轮，避免"明知做不完还开局"；
+        //   · 硬阈值：搜索过程中每 NODES_PER_TIME_CHECK 个节点查一次，超限置 Aborted
+        //     并立即中断；被中断的那一轮**结果作废**，只采用上一轮完整深度的结果，
+        //     从而保证返回的着法始终来自一次完整搜索。
+        // timeMs <= 0（缺省）时 clock == null，完全不启用：ClockTick 恒 false、
+        // ClockOverSoft 恒 false，走原来的固定深度搜索路径，结果与改造前逐字节一致。
+        private const int NodesPerTimeCheck = 2048;   // 每 2048 个节点查一次硬阈值
+        private const int SoftNumerator = 1;
+        private const int SoftDenominator = 2;        // 软阈值 = 预算 × 1/2
+
+        private sealed class SearchClock
+        {
+            private readonly System.Diagnostics.Stopwatch _sw = System.Diagnostics.Stopwatch.StartNew();
+            public long LimitMs;   // 硬阈值（预算总额）
+            public long SoftMs;    // 软阈值（预算 × 1/2）
+            public long Nodes;
+            public bool Aborted;
+
+            // 软阈值：是否不该再开新一轮深度
+            public bool OverSoft() { return _sw.ElapsedMilliseconds >= SoftMs; }
+
+            // 硬阈值：每 NodesPerTimeCheck 个节点查一次；超限置 Aborted
+            public bool Tick()
+            {
+                Nodes++;
+                if ((Nodes & (NodesPerTimeCheck - 1)) == 0 && _sw.ElapsedMilliseconds >= LimitMs)
+                    Aborted = true;
+                return Aborted;
+            }
+        }
+
+        // 当前搜索的时钟（无时间控制时为 null）
+        private static SearchClock? clock = null;
+
+        // 启动（timeMs > 0）或关闭（timeMs <= 0）时间控制。
+        private static void BeginClock(int timeMs)
+        {
+            if (timeMs <= 0) { clock = null; return; }
+            clock = new SearchClock
+            {
+                LimitMs = timeMs,
+                SoftMs = (long)timeMs * SoftNumerator / SoftDenominator
+            };
+        }
+
+        // 硬阈值检查：超限返回 true（调用方立即中断）。
+        private static bool ClockTick() { return clock != null && clock.Tick(); }
+
+        // 软阈值检查：是否已不该再开新一轮深度。
+        private static bool ClockOverSoft() { return clock != null && clock.OverSoft(); }
+
         // ---------------------------- 静态搜索（quiescence） ----------------------------
         public static int Quiescence(GameState state, int alpha, int beta, int qdepth)
         {
+            // Tier 2-B：同 Negamax，途中按节点数检查硬阈值。
+            if (ClockTick()) return alpha;
             int stand = EvaluateSide(state);
             if (stand >= beta) return beta;
             if (stand > alpha) alpha = stand;
@@ -346,6 +403,8 @@ namespace ChessEngine
         // ---------------------------- 主搜索：negamax + alpha-beta ----------------------------
         public static int Negamax(GameState state, int depth, int alpha, int beta, int ply)
         {
+            // Tier 2-B：硬阈值按节点数周期检查，超限立即中断（未完成的一轮会被丢弃）。
+            if (ClockTick()) return alpha;
             List<Move> moves = Rules.GenerateAllLegalMoves(state);
 
             if (moves.Count == 0)
@@ -374,15 +433,11 @@ namespace ChessEngine
         }
 
         // ---------------------------- 对外接口：求最佳走法 ----------------------------
-        // 无合法走法时返回 null（对齐 C++ std::nullopt）
-        public static Move? FindBestMove(GameState state, int depth)
+
+        // 根结点一轮搜索（给定深度），返回最佳走法。
+        private static Move SearchRoot(GameState state, List<Move> moves, int depth)
         {
-            List<Move> moves = Rules.GenerateAllLegalMoves(state);
-            if (moves.Count == 0) return null;
-            if (moves.Count == 1) return moves[0];
-
             OrderMoves(moves);
-
             Move bestMove = moves[0];
             int bestScore = -Infinity;
             int alpha = -Infinity;
@@ -393,6 +448,7 @@ namespace ChessEngine
                 GameState child = state.CloneLight();
                 Rules.ApplyMove(child, m, false);
                 int score = -Negamax(child, depth - 1, -beta, -alpha, 1);
+                if (clock != null && clock.Aborted) break; // 硬阈值中断：本轮作废
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -401,6 +457,58 @@ namespace ChessEngine
                 if (score > alpha) alpha = score;
             }
             return bestMove;
+        }
+
+        // 时间受控的最佳走法。无合法走法时返回 null（对齐 C++ std::nullopt）。
+        // timeMs > 0 时启用 Tier 2-B 迭代加深（软/硬双阈值）；
+        // timeMs <= 0（或缺省）时走原来的固定深度单次搜索，结果与改造前逐字节一致。
+        public static Move? FindBestMoveTimed(GameState state, int depth, int timeMs)
+        {
+            List<Move> moves = Rules.GenerateAllLegalMoves(state);
+            if (moves.Count == 0) return null;
+            if (moves.Count == 1) return moves[0];
+
+            int cap = depth > 0 ? depth : 3;
+
+            if (timeMs <= 0 || cap <= 1)
+            {
+                // 原路径：固定深度单次搜索（不含任何时钟开销）。
+                // timeMs <= 0 时严格沿用调用方传入的 depth，保证与 Tier 2-B 前完全一致。
+                int fixedDepth = timeMs <= 0 ? depth : cap;
+                SearchClock? prev = clock;
+                clock = null;
+                Move mv = SearchRoot(state, new List<Move>(moves), fixedDepth);
+                clock = prev;
+                return mv;
+            }
+
+            // 迭代加深：d = 1..cap，软阈值管"是否开新一轮"，硬阈值管"中断当前轮"。
+            BeginClock(timeMs);
+            Move bestMove = moves[0];
+            bool completed = false; // 是否已至少完成一轮（中断时回退到它）
+            try
+            {
+                for (int d = 1; d <= cap; ++d)
+                {
+                    if (completed && ClockOverSoft()) break;
+                    clock!.Aborted = false;
+                    Move mv = SearchRoot(state, new List<Move>(moves), d);
+                    if (clock.Aborted && completed) break; // 丢弃未完成的这一轮
+                    bestMove = mv;
+                    completed = true;
+                }
+            }
+            finally
+            {
+                clock = null;
+            }
+            return bestMove; // 至少完成过 depth=1 的一轮，必为合法着法
+        }
+
+        // 无时间控制的固定深度搜索（保持原有调用约定）：内部以 timeMs=0 委托。
+        public static Move? FindBestMove(GameState state, int depth)
+        {
+            return FindBestMoveTimed(state, depth, 0);
         }
     }
 }

@@ -639,66 +639,171 @@ let evaluate (state: GameState) =
     | None -> ()
     if state.WhiteToMove then score else -score
 
+// ---------------------------- Tier 2-B 时间控制 ----------------------------
+// 迭代加深 + 软/硬双阈值（与 Go chess_ai.go 的 searchClock / JS chessAI.js 的
+// SearchClock 同构）：
+//   · 软阈值：开新一轮深度前检查（已用时间 >= 预算 × 1/2 就不再开新轮），避免
+//     "明知做不完还开局"；
+//   · 硬阈值：搜索中每 nodesPerTimeCheck 个节点查一次，超限置 Aborted 并立即中断；
+//     被中断的那一轮**结果作废**，只采用上一轮完整深度的结果，从而保证返回的
+//     着法始终来自一次完整搜索。
+// timeMs <= 0 时 searchClock = None，完全不启用（走原固定深度路径，行为不变）。
+let nodesPerTimeCheck = 2048
+let softNumerator = 1
+let softDenominator = 2 // 软阈值 = 预算 × 1/2
+
+type SearchClock(limitMs: int64) =
+    let sw = Diagnostics.Stopwatch.StartNew()
+    member val LimitMs = limitMs with get, set
+    member val SoftMs = (limitMs * int64 softNumerator) / int64 softDenominator with get, set
+    member val Nodes = 0L with get, set
+    member val Aborted = false with get, set
+    member this.ElapsedMs() = sw.ElapsedMilliseconds
+
+// 当前搜索的时钟（无时间控制时为 None）
+let mutable searchClock: SearchClock option = None
+
+// beginClock 启动（timeMs > 0）或关闭（timeMs <= 0）时间控制。
+let beginClock (timeMs: int) =
+    if timeMs <= 0 then searchClock <- None
+    else searchClock <- Some(SearchClock(int64 timeMs))
+
+// clockTick 每 nodesPerTimeCheck 个节点查一次硬阈值；返回 true = 立即中断。
+let clockTick () =
+    match searchClock with
+    | None -> false
+    | Some c ->
+        c.Nodes <- c.Nodes + 1L
+        if c.Nodes % int64 nodesPerTimeCheck = 0L && c.ElapsedMs() >= c.LimitMs then
+            c.Aborted <- true
+        c.Aborted
+
+// clockOverSoft 软阈值：是否不该再开新一轮深度。
+let clockOverSoft () =
+    match searchClock with
+    | None -> false
+    | Some c -> c.ElapsedMs() >= c.SoftMs
+
 let rec quiescence (state: GameState) alpha beta qdepth =
-    let stand = evaluate state
-    let mutable a = if stand > alpha then stand else alpha
-    if stand >= beta then stand
-    elif qdepth <= 0 then stand
+    // Tier 2-B：同 negamax，入口按节点数检查硬阈值，超限立即中断返回 alpha。
+    if clockTick () then
+        alpha
     else
-        let mutable best = stand
-        let capturesArr = generateAllLegalMoves state |> Seq.filter (fun m -> m.Captured <> '.') |> Array.ofSeq
-        let mutable i = 0
-        let mutable cut = false
-        while i < capturesArr.Length && not cut do
-            let m = capturesArr.[i]
-            let ns = state.CloneLight()
-            applyMove ns m false
-            let score = -quiescence ns (-beta) (-a) (qdepth - 1)
-            if score > best then best <- score
-            if best > a then a <- best
-            if a >= beta then cut <- true
-            i <- i + 1
-        best
+        let stand = evaluate state
+        let mutable a = if stand > alpha then stand else alpha
+        if stand >= beta then stand
+        elif qdepth <= 0 then stand
+        else
+            let mutable best = stand
+            let capturesArr = generateAllLegalMoves state |> Seq.filter (fun m -> m.Captured <> '.') |> Array.ofSeq
+            let mutable i = 0
+            let mutable cut = false
+            while i < capturesArr.Length && not cut do
+                let m = capturesArr.[i]
+                let ns = state.CloneLight()
+                applyMove ns m false
+                let score = -quiescence ns (-beta) (-a) (qdepth - 1)
+                if score > best then best <- score
+                if best > a then a <- best
+                if a >= beta then cut <- true
+                i <- i + 1
+            best
 
 let rec negamax (state: GameState) depth alpha beta =
-    let moves = generateAllLegalMoves state
-    if moves.Count = 0 then
-        if isInCheck state state.WhiteToMove then -(1000000 + depth) else 0
-    elif depth = 0 then
-        quiescence state alpha beta 4
+    // Tier 2-B：硬阈值按节点数周期检查，超限立即中断返回 alpha
+    // （未完成的一轮会被 findBestMoveTimed 丢弃）。
+    if clockTick () then
+        alpha
     else
-        // Alpha-beta beta-cutoff. F#'s `for` loop has no `break`, so the original
-        // `if a >= beta then ()` was a no-op and the tree was never pruned — which
-        // made F# orders of magnitude slower than the pruned engines and blew past
-        // the 60s per-move RPC timeout at depth 4. Use an explicit while-loop with
-        // a `cut` flag to actually stop searching this node once it's refuted.
-        let mutable best = -2000000
-        let mutable a = alpha
-        let mutable i = 0
-        let mutable cut = false
-        while i < moves.Count && not cut do
-            let m = moves.[i]
-            let ns = state.CloneLight()
-            applyMove ns m false
-            let score = -negamax ns (depth - 1) (-beta) (-a)
-            if score > best then best <- score
-            if best > a then a <- best
-            if a >= beta then cut <- true
-            i <- i + 1
-        best
+        let moves = generateAllLegalMoves state
+        if moves.Count = 0 then
+            if isInCheck state state.WhiteToMove then -(1000000 + depth) else 0
+        elif depth = 0 then
+            quiescence state alpha beta 4
+        else
+            // Alpha-beta beta-cutoff. F#'s `for` loop has no `break`, so the original
+            // `if a >= beta then ()` was a no-op and the tree was never pruned — which
+            // made F# orders of magnitude slower than the pruned engines and blew past
+            // the 60s per-move RPC timeout at depth 4. Use an explicit while-loop with
+            // a `cut` flag to actually stop searching this node once it's refuted.
+            let mutable best = -2000000
+            let mutable a = alpha
+            let mutable i = 0
+            let mutable cut = false
+            while i < moves.Count && not cut do
+                let m = moves.[i]
+                let ns = state.CloneLight()
+                applyMove ns m false
+                let score = -negamax ns (depth - 1) (-beta) (-a)
+                if score > best then best <- score
+                if best > a then a <- best
+                if a >= beta then cut <- true
+                i <- i + 1
+            best
 
-let findBestMove (state: GameState) depth =
-    let moves = generateAllLegalMoves state
-    if moves.Count = 0 then failwith "no legal moves"
+// 根结点一轮搜索（给定深度）：返回该轮最佳走法。时钟无中断时与改造前的
+// findBestMove 根循环逐步等价（同一迭代顺序、同一 alpha-beta 传参、同一取优条件）。
+// 硬阈值置位时立即停止并保留已累积的最佳走法，由调用方决定是否丢弃本轮。
+let private searchRoot (state: GameState) (moves: ResizeArray<Move>) depth =
     let mutable bestMove = moves.[0]
     let mutable bestScore = -2000000
     let mutable a = -2000000
-    for m in moves do
+    let mutable i = 0
+    let mutable stop = false
+    while i < moves.Count && not stop do
+        let m = moves.[i]
         let ns = state.CloneLight()
         applyMove ns m false
         let score = -negamax ns (depth - 1) (-2000000) (-a)
-        if score > bestScore then
-            bestScore <- score
-            bestMove <- m
-        if bestScore > a then a <- bestScore
+        match searchClock with
+        | Some c when c.Aborted -> stop <- true // 硬阈值中断：本轮作废
+        | _ ->
+            if score > bestScore then
+                bestScore <- score
+                bestMove <- m
+            if bestScore > a then a <- bestScore
+            i <- i + 1
     bestMove
+
+// 时间受控的最佳走法。
+// timeMs > 0 且 depth > 1 时启用迭代加深（软/硬双阈值）；否则走原来的固定深度
+// 单次搜索，结果与改造前完全一致（严格沿用调用方 depth，不套 cap）。
+let findBestMoveTimed (state: GameState) depth timeMs =
+    let moves = generateAllLegalMoves state
+    if moves.Count = 0 then failwith "no legal moves"
+    if timeMs <= 0 || depth <= 1 then
+        // 原路径：固定深度单次搜索（不含任何时钟开销）
+        let prev = searchClock
+        searchClock <- None
+        let mv = searchRoot state moves depth
+        searchClock <- prev
+        mv
+    else
+        let cap = if depth <= 0 then 3 else depth
+        beginClock timeMs
+        let mutable bestMove = moves.[0]
+        let mutable completed = false // 是否已至少完成一轮（中断时回退到它）
+        try
+            let mutable d = 1
+            let mutable stop = false
+            while not stop && d <= cap do
+                if completed && clockOverSoft () then
+                    stop <- true // 软阈值：不再开新一轮
+                else
+                    match searchClock with
+                    | Some c -> c.Aborted <- false
+                    | None -> ()
+                    let mv = searchRoot state moves d
+                    match searchClock with
+                    | Some c when c.Aborted && completed -> stop <- true // 丢弃未完成的这一轮
+                    | _ ->
+                        bestMove <- mv
+                        completed <- true
+                        d <- d + 1
+        finally
+            searchClock <- None
+        bestMove // 至少完成过 depth=1 的一轮，必为合法着法
+
+// 无时间控制的固定深度搜索（保持原有调用约定）。
+let findBestMove (state: GameState) depth =
+    findBestMoveTimed state depth 0

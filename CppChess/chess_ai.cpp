@@ -4,6 +4,7 @@
 
 #include "chess_ai.h"
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 
@@ -263,8 +264,57 @@ void AIEngine::OrderMoves(std::vector<Move>& moves) {
               });
 }
 
+// ---------------------------- Tier 2-B 时间控制 ----------------------------
+// 软阈值只决定是否开启下一轮；硬阈值在搜索中每 2048 个节点检查一次。
+namespace {
+constexpr std::uint64_t NodesPerTimeCheck = 2048;
+constexpr std::int64_t SoftNumerator = 1;
+constexpr std::int64_t SoftDenominator = 2;
+
+struct SearchClock {
+    using Clock = std::chrono::steady_clock;
+
+    explicit SearchClock(int timeMs)
+        : limitMs(timeMs),
+          start(Clock::now()),
+          softDeadline(start + std::chrono::milliseconds(
+              static_cast<std::int64_t>(timeMs) * SoftNumerator / SoftDenominator)) {}
+
+    bool Tick() {
+        ++nodes;
+        if (nodes % NodesPerTimeCheck == 0 &&
+            Clock::now() - start >= std::chrono::milliseconds(limitMs)) {
+            aborted = true;
+        }
+        return aborted;
+    }
+
+    bool OverSoft() const {
+        return Clock::now() >= softDeadline;
+    }
+
+    std::int64_t limitMs;
+    Clock::time_point start;
+    Clock::time_point softDeadline;
+    std::uint64_t nodes = 0;
+    bool aborted = false;
+};
+
+SearchClock* searchClock = nullptr;
+
+bool ClockTick() {
+    return searchClock != nullptr && searchClock->Tick();
+}
+
+bool ClockOverSoft() {
+    return searchClock != nullptr && searchClock->OverSoft();
+}
+} // namespace
+
 // ---------------------------- 静态搜索（quiescence） ----------------------------
 int AIEngine::Quiescence(const GameState& state, int alpha, int beta, int qdepth) {
+    if (ClockTick()) return alpha;
+
     int stand = EvaluateSide(state);
     if (stand >= beta) return beta;
     if (stand > alpha) alpha = stand;
@@ -287,6 +337,8 @@ int AIEngine::Quiescence(const GameState& state, int alpha, int beta, int qdepth
 
 // ---------------------------- 主搜索：negamax + alpha-beta ----------------------------
 int AIEngine::Negamax(const GameState& state, int depth, int alpha, int beta, int ply) {
+    if (ClockTick()) return alpha;
+
     std::vector<Move> moves = Rules::GenerateAllLegalMoves(state);
 
     if (moves.empty()) {
@@ -313,22 +365,21 @@ int AIEngine::Negamax(const GameState& state, int depth, int alpha, int beta, in
 }
 
 // ---------------------------- 对外接口：求最佳走法 ----------------------------
-std::optional<Move> AIEngine::FindBestMove(const GameState& state, int depth) {
-    std::vector<Move> moves = Rules::GenerateAllLegalMoves(state);
-    if (moves.empty()) return std::nullopt;
-    if (moves.size() == 1) return moves[0];
 
+// 根结点一轮搜索（给定深度）。moves 按值传入，保证迭代加深每轮从相同顺序开始。
+Move AIEngine::SearchRoot(const GameState& state, std::vector<Move> moves, int depth) {
     OrderMoves(moves);
 
     Move bestMove = moves[0];
     int bestScore = -Infinity;
     int alpha = -Infinity;
-    int beta = Infinity;
+    const int beta = Infinity;
 
     for (const Move& m : moves) {
         GameState child = state.CloneLight();
         Rules::ApplyMove(child, m, false);
         int score = -Negamax(child, depth - 1, -beta, -alpha, 1);
+        if (searchClock != nullptr && searchClock->aborted) break;
         if (score > bestScore) {
             bestScore = score;
             bestMove = m;
@@ -336,4 +387,40 @@ std::optional<Move> AIEngine::FindBestMove(const GameState& state, int depth) {
         if (score > alpha) alpha = score;
     }
     return bestMove;
+}
+
+std::optional<Move> AIEngine::FindBestMoveTimed(const GameState& state, int depth, int timeMs) {
+    std::vector<Move> moves = Rules::GenerateAllLegalMoves(state);
+    if (moves.empty()) return std::nullopt;
+    if (moves.size() == 1) return moves[0];
+
+    const int cap = depth > 0 ? depth : 3;
+    if (timeMs <= 0 || cap <= 1) {
+        // timeMs <= 0 时严格沿用调用方传入的 depth，保持改造前的固定深度行为。
+        const int fixedDepth = timeMs <= 0 ? depth : cap;
+        SearchClock* previousClock = searchClock;
+        searchClock = nullptr;
+        Move bestMove = SearchRoot(state, moves, fixedDepth);
+        searchClock = previousClock;
+        return bestMove;
+    }
+
+    SearchClock clock(timeMs);
+    searchClock = &clock;
+    Move bestMove = moves[0];
+    bool completed = false;
+    for (int d = 1; d <= cap; ++d) {
+        if (completed && ClockOverSoft()) break;
+        clock.aborted = false;
+        Move move = SearchRoot(state, moves, d);
+        if (clock.aborted && completed) break;
+        bestMove = move;
+        completed = true;
+    }
+    searchClock = nullptr;
+    return bestMove;
+}
+
+std::optional<Move> AIEngine::FindBestMove(const GameState& state, int depth) {
+    return FindBestMoveTimed(state, depth, 0);
 }

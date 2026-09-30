@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import time
+
 from chess_core import GameState, Move, Rules, SpecialMove
 
 # ---------------------------- 子力价值（厘兵单位） ----------------------------
@@ -130,6 +132,54 @@ PST = (
     PST_Queen,
     PST_King,
 )
+
+
+# ---------------------------- Tier 2-B 时间控制 ----------------------------
+# 迭代加深 + 软/硬双阈值（与 Go chess_ai.go 的 searchClock / JsChess/chessAI.js 的
+# SearchClock 同构）：
+#   · 软阈值：开新一轮深度前检查（已用时间 >= 预算×SOFT_FRACTION 就不再开新轮），
+#     避免"明知做不完还开局"；
+#   · 硬阈值：搜索过程中按节点数周期检查（每 NODES_PER_TIME_CHECK 个节点），
+#     超限立即中断；被中断的那一轮**结果作废**，只采用上一轮完整深度的结果。
+# 这样保证返回的着法始终来自一次完整搜索，绝不会因为中断返回半成品。
+# timeMs <= 0（或缺省请求）时时钟为 None，完全不启用，走原来的固定深度搜索路径。
+# 注：Go/JS/C++ 等编译型引擎用 2048；Python 是 10 引擎中最慢的（节点速率约
+# 2–3k/s），2048 个节点要跑 ~700ms，采样太稀会让实际耗时明显过冲预算
+# （实测 700ms 预算跑到 1141ms）。这里把采样粒度调细到 256（约 100ms 一次），
+# 语义与其余引擎完全一致，只是检查更频繁。
+NODES_PER_TIME_CHECK = 256
+SOFT_FRACTION = 0.5
+
+
+class SearchClock:
+    """一次 find_best_move_timed 调用期间的搜索时钟。"""
+    __slots__ = ("limit_ms", "start_ms", "soft_ms", "nodes", "aborted")
+
+    def __init__(self, limit_ms: float) -> None:
+        self.limit_ms = float(limit_ms)
+        self.start_ms = time.perf_counter() * 1000.0
+        self.soft_ms = self.start_ms + self.limit_ms * SOFT_FRACTION
+        self.nodes = 0
+        self.aborted = False
+
+    def _now_ms(self) -> float:
+        return time.perf_counter() * 1000.0
+
+    # 软阈值：是否不该再开新一轮深度
+    def over_soft(self) -> bool:
+        return self._now_ms() >= self.soft_ms
+
+    # 硬阈值：每 NODES_PER_TIME_CHECK 个节点查一次；超限置 aborted
+    def tick(self) -> bool:
+        self.nodes += 1
+        if self.nodes & (NODES_PER_TIME_CHECK - 1) == 0:
+            if self._now_ms() - self.start_ms >= self.limit_ms:
+                self.aborted = True
+        return self.aborted
+
+
+# 当前搜索的时钟（无时间控制时为 None）
+_search_clock: SearchClock | None = None
 
 
 class AIEngine:
@@ -296,6 +346,9 @@ class AIEngine:
     # ---------------------------- 静态搜索（quiescence） ----------------------------
     @staticmethod
     def quiescence(state: GameState, alpha: int, beta: int, qdepth: int) -> int:
+        # Tier 2-B：同 negamax，途中按节点数检查硬阈值。
+        if _search_clock is not None and _search_clock.tick():
+            return alpha
         stand = AIEngine._evaluate_side(state)
         if stand >= beta:
             return beta
@@ -323,6 +376,9 @@ class AIEngine:
     # ---------------------------- 主搜索：negamax + alpha-beta ----------------------------
     @staticmethod
     def negamax(state: GameState, depth: int, alpha: int, beta: int, ply: int) -> int:
+        # Tier 2-B：硬阈值按节点数周期检查，超限立即中断（未完成的一轮会被丢弃）。
+        if _search_clock is not None and _search_clock.tick():
+            return alpha
         moves = Rules.generate_all_legal_moves(state)
 
         if not moves:
@@ -349,14 +405,10 @@ class AIEngine:
         return best
 
     # ---------------------------- 对外接口：求最佳走法 ----------------------------
+    # 根结点一轮搜索（给定深度），返回最佳走法。硬阈值中断时提前 break，
+    # 由调用方丢弃本轮结果。
     @staticmethod
-    def find_best_move(state: GameState, depth: int) -> Move | None:
-        moves = Rules.generate_all_legal_moves(state)
-        if not moves:
-            return None
-        if len(moves) == 1:
-            return moves[0]
-
+    def _search_root(state: GameState, moves: list[Move], depth: int) -> Move:
         AIEngine.order_moves(moves)
 
         best_move = moves[0]
@@ -368,9 +420,61 @@ class AIEngine:
             child = state.clone_light()
             Rules.apply_move(child, m, False)
             score = -AIEngine.negamax(child, depth - 1, -beta, -alpha, 1)
+            if _search_clock is not None and _search_clock.aborted:
+                break  # 硬阈值中断：本轮作废
             if score > best_score:
                 best_score = score
                 best_move = m
             if score > alpha:
                 alpha = score
         return best_move
+
+    # 时间受控的最佳走法。
+    # time_ms > 0 时启用迭代加深（软/硬双阈值）；time_ms <= 0 时走原来的固定深度
+    # 单次搜索，**严格沿用调用方 depth**（不套 cap），结果与改造前逐字节一致。
+    @staticmethod
+    def find_best_move_timed(state: GameState, depth: int, time_ms: float = 0) -> Move | None:
+        global _search_clock
+        moves = Rules.generate_all_legal_moves(state)
+        if not moves:
+            return None
+        if len(moves) == 1:
+            return moves[0]
+
+        try:
+            budget = float(time_ms)
+        except (TypeError, ValueError):
+            budget = 0.0
+
+        if not (budget > 0) or depth <= 1:
+            # 原路径：固定深度单次搜索（不含任何时钟开销）
+            prev = _search_clock
+            _search_clock = None
+            try:
+                return AIEngine._search_root(state, moves, depth)
+            finally:
+                _search_clock = prev
+
+        # 迭代加深：d = 1..cap，软阈值管"是否开新一轮"，硬阈值管"中断当前轮"。
+        cap = depth if depth > 0 else 3
+        _search_clock = SearchClock(budget)
+        best_move = moves[0]
+        completed = False  # 是否已至少完成一轮（中断时回退到它）
+        try:
+            for d in range(1, cap + 1):
+                if completed and _search_clock.over_soft():
+                    break
+                _search_clock.aborted = False
+                mv = AIEngine._search_root(state, list(moves), d)
+                if _search_clock.aborted and completed:
+                    break  # 丢弃未完成的这一轮
+                best_move = mv
+                completed = True
+        finally:
+            _search_clock = None
+        return best_move  # 至少完成过 depth=1 的一轮，必为合法着法
+
+    # 无时间控制的固定深度搜索（保持原有调用约定）。
+    @staticmethod
+    def find_best_move(state: GameState, depth: int) -> Move | None:
+        return AIEngine.find_best_move_timed(state, depth, 0)

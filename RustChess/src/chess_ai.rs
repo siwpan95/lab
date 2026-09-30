@@ -4,6 +4,8 @@
 // =============================================================================
 
 use crate::chess_core::{GameState, Move, Rules};
+use std::cell::RefCell;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------- 评估风格档（Tier 2-C 批1 试点） ----------------------------
 // 与 JsChess/chessAI.js 的 EVAL_PROFILE 同构：每引擎一份独立 profile，术语全部是
@@ -78,6 +80,103 @@ const PST_KING: [i32; 64] = [
     -30, -20, -10, -20, -20, -20, -20, -20, -20, -10, 20, 20, 0, 0, 0, 0, 20, 20, 20, 30, 10, 0, 0,
     10, 30, 20,
 ];
+
+// ---------------------------- Tier 2-B 时间控制 ----------------------------
+// 迭代加深 + 软/硬双阈值（与 Go chess_ai.go 的 searchClock、JsChess 的 SearchClock 同构）：
+//   · 软阈值：开新一轮深度前检查（已用时间 >= 预算×1/2 就不再开新轮）；
+//   · 硬阈值：搜索中每 NODES_PER_TIME_CHECK 个节点检查一次，超限置 aborted；
+//     被中断的那一轮**结果作废**，只采用上一轮完整深度的结果，
+//     从而保证返回的着法始终来自一次完整搜索。
+// time_ms <= 0 时时钟为 None，完全不启用（走原固定深度路径，行为与改造前一致）。
+const NODES_PER_TIME_CHECK: i64 = 2048;
+const SOFT_NUMERATOR: i64 = 1;
+const SOFT_DENOMINATOR: i64 = 2; // 软阈值 = 预算 × 1/2
+
+struct SearchClock {
+    limit_ms: i64,
+    start_ms: i64,
+    soft_ms: i64,
+    nodes: i64,
+    aborted: bool,
+}
+
+thread_local! {
+    // 当前搜索的时钟（无时间控制时为 None）。驱动是单线程的，用 thread_local
+    // 避免全局可变静态的 unsafe，也无锁开销。
+    // 注意：所有访问器都在返回前释放 RefCell 借用，绝不在持有借用时递归进搜索。
+    static CLOCK: RefCell<Option<SearchClock>> = RefCell::new(None);
+}
+
+fn now_ms() -> i64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_millis() as i64,
+        Err(_) => 0,
+    }
+}
+
+// begin_clock 启动（time_ms>0）或关闭（time_ms<=0）时间控制。
+fn begin_clock(time_ms: i64) {
+    CLOCK.with(|c| {
+        if time_ms <= 0 {
+            *c.borrow_mut() = None;
+            return;
+        }
+        let now = now_ms();
+        *c.borrow_mut() = Some(SearchClock {
+            limit_ms: time_ms,
+            start_ms: now,
+            soft_ms: now + time_ms * SOFT_NUMERATOR / SOFT_DENOMINATOR,
+            nodes: 0,
+            aborted: false,
+        });
+    });
+}
+
+// clock_end 结束本次受控搜索，时钟置空（避免泄漏到后续 negamax 调用）。
+fn clock_end() {
+    CLOCK.with(|c| {
+        c.replace(None);
+    });
+}
+
+// clock_tick 每 NODES_PER_TIME_CHECK 个节点查一次硬阈值；返回是否已中断。
+fn clock_tick() -> bool {
+    CLOCK.with(|c| {
+        let mut b = c.borrow_mut();
+        match b.as_mut() {
+            None => false,
+            Some(cl) => {
+                cl.nodes += 1;
+                if cl.nodes % NODES_PER_TIME_CHECK == 0 && now_ms() - cl.start_ms >= cl.limit_ms {
+                    cl.aborted = true;
+                }
+                cl.aborted
+            }
+        }
+    })
+}
+
+// clock_over_soft 软阈值：是否不该再开新一轮深度。
+fn clock_over_soft() -> bool {
+    CLOCK.with(|c| match c.borrow().as_ref() {
+        None => false,
+        Some(cl) => now_ms() >= cl.soft_ms,
+    })
+}
+
+// clock_aborted 当前这一轮是否已被硬阈值中断。
+fn clock_aborted() -> bool {
+    CLOCK.with(|c| c.borrow().as_ref().map_or(false, |cl| cl.aborted))
+}
+
+// clock_reset_abort 开新一轮深度前清掉上一轮的中断标记。
+fn clock_reset_abort() {
+    CLOCK.with(|c| {
+        if let Some(cl) = c.borrow_mut().as_mut() {
+            cl.aborted = false;
+        }
+    });
+}
 
 pub struct AIEngine;
 
@@ -342,6 +441,10 @@ impl AIEngine {
 
     // 静态搜索（quiescence）
     pub fn quiescence(state: &GameState, alpha: i32, beta: i32, qdepth: i32) -> i32 {
+        // Tier 2-B：同 negamax，途中按节点数检查硬阈值。
+        if clock_tick() {
+            return alpha;
+        }
         let stand = evaluate_side(state);
         let mut alpha = alpha;
         if stand >= beta {
@@ -376,8 +479,42 @@ impl AIEngine {
         alpha
     }
 
+    // 根结点一轮搜索（给定深度），返回最佳走法。
+    // 硬阈值中断时立即跳出（本轮结果作废，由调用方丢弃）。
+    fn search_root(state: &GameState, moves: &mut Vec<Move>, depth: i32) -> Option<Move> {
+        if moves.is_empty() {
+            return None;
+        }
+        Self::order_moves(moves);
+        let mut best_move = moves[0].clone();
+        let mut best_score = -Self::INFINITY;
+        let mut alpha = -Self::INFINITY;
+        let beta = Self::INFINITY;
+
+        for m in moves.iter() {
+            let mut child = state.clone_light();
+            Rules::apply_move(&mut child, m, false);
+            let score = -Self::negamax(&child, depth - 1, -beta, -alpha, 1);
+            if clock_aborted() {
+                break; // 硬阈值中断：本轮作废
+            }
+            if score > best_score {
+                best_score = score;
+                best_move = m.clone();
+            }
+            if score > alpha {
+                alpha = score;
+            }
+        }
+        Some(best_move)
+    }
+
     // 主搜索：negamax + alpha-beta
     pub fn negamax(state: &GameState, depth: i32, alpha: i32, beta: i32, ply: i32) -> i32 {
+        // Tier 2-B：硬阈值按节点数周期检查，超限立即中断（未完成的一轮会被丢弃）。
+        if clock_tick() {
+            return alpha;
+        }
         let mut moves = Rules::generate_all_legal_moves(state);
         if moves.is_empty() {
             if Rules::is_in_check(state, state.white_to_move) {
@@ -409,36 +546,58 @@ impl AIEngine {
         best
     }
 
-    // 对外接口：求最佳走法（无合法走法时为 None）
-    pub fn find_best_move(state: &GameState, depth: i32) -> Option<Move> {
-        let moves = Rules::generate_all_legal_moves(state);
+    // 对外接口：求最佳走法（无合法走法时为 None）。
+    // time_ms > 0 时启用 Tier 2-B 时间控制（迭代加深 + 软/硬双阈值）；
+    // time_ms <= 0 时走原来的固定深度单次搜索，结果与改造前逐字节一致。
+    pub fn find_best_move_timed(state: &GameState, depth: i32, time_ms: i32) -> Option<Move> {
+        let mut moves = Rules::generate_all_legal_moves(state);
         if moves.is_empty() {
             return None;
         }
         if moves.len() == 1 {
             return Some(moves[0].clone());
         }
-        let mut moves = moves;
-        Self::order_moves(&mut moves);
+        // 迭代加深的深度上限。注意：无时间控制分支仍按调用方给定的 depth 原样搜索
+        // （不套用 cap），以保证 timeMs=0 的结果与改造前完全一致。
+        let cap = if depth > 0 { depth } else { 3 };
 
+        if time_ms <= 0 || cap <= 1 {
+            // 原路径：固定深度单次搜索（不含任何时钟开销）
+            let prev = CLOCK.with(|c| c.replace(None));
+            let res = Self::search_root(state, &mut moves, depth);
+            CLOCK.with(|c| {
+                c.replace(prev);
+            });
+            return res;
+        }
+
+        // 迭代加深：d = 1..cap，软阈值管“是否开新一轮”，硬阈值管“中断当前轮”。
+        begin_clock(time_ms as i64);
         let mut best_move = moves[0].clone();
-        let mut best_score = -Self::INFINITY;
-        let mut alpha = -Self::INFINITY;
-        let beta = Self::INFINITY;
-
-        for m in &moves {
-            let mut child = state.clone_light();
-            Rules::apply_move(&mut child, m, false);
-            let score = -Self::negamax(&child, depth - 1, -beta, -alpha, 1);
-            if score > best_score {
-                best_score = score;
-                best_move = m.clone();
+        let mut completed = false; // 是否已至少完整完成一轮（中断时回退到它）
+        for d in 1..=cap {
+            if completed && clock_over_soft() {
+                break;
             }
-            if score > alpha {
-                alpha = score;
+            clock_reset_abort();
+            let mut round = moves.clone();
+            if let Some(mv) = Self::search_root(state, &mut round, d) {
+                if clock_aborted() && completed {
+                    break; // 丢弃未完成的这一轮
+                }
+                best_move = mv;
+                completed = true;
+            } else {
+                break;
             }
         }
-        Some(best_move)
+        clock_end();
+        Some(best_move) // 至少完成过 depth=1 的一轮，必为合法着法
+    }
+
+    // 无时间控制的固定深度搜索（保持原有调用约定，等价于 find_best_move_timed(.., 0)）。
+    pub fn find_best_move(state: &GameState, depth: i32) -> Option<Move> {
+        Self::find_best_move_timed(state, depth, 0)
     }
 }
 

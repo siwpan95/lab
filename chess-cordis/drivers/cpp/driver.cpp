@@ -145,6 +145,8 @@ int main() {
         string fen = getField(line, "fen");
         string dstr = getField(line, "depth");
         int depth = dstr.empty() ? 0 : stoi(dstr);
+        string tstr = getField(line, "timeMs");
+        int timeMs = tstr.empty() ? 0 : stoi(tstr);
         vector<string> history = getHistoryArray(line);
         GameState s = fromFen(fen);  // 注意：fromFen 保留 RepHistory 为 null
         if (cmd == "perft") {
@@ -163,7 +165,7 @@ int main() {
                 for (const string& k : history) (*rep)[k]++;
                 s.RepHistory = rep;
             }
-            optional<Move> mv = AIEngine::FindBestMove(s, depth);
+            optional<Move> mv = AIEngine::FindBestMoveTimed(s, depth, timeMs);
             if (s.RepHistory) { delete s.RepHistory; s.RepHistory = nullptr; }
             if (mv.has_value()) {
                 cout << "{\"id\":\"" << id << "\",\"ok\":true,\"move\":\""

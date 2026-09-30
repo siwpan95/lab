@@ -129,6 +129,14 @@ namespace ChessEngineDriver
                     string cmd = root.GetProperty("cmd").GetString() ?? "";
                     string fen = root.GetProperty("fen").GetString() ?? "";
                     int depth = root.TryGetProperty("depth", out JsonElement d) ? d.GetInt32() : 0;
+                    // Tier 2-B：可选的每步时间预算（毫秒）。缺省/0 ⇒ 固定深度搜索（行为同改造前）。
+                    int timeMs = 0;
+                    if (root.TryGetProperty("timeMs", out JsonElement t) &&
+                        t.ValueKind == JsonValueKind.Number)
+                    {
+                        if (t.TryGetInt32(out int tv)) timeMs = tv;
+                        else if (t.TryGetDouble(out double td)) timeMs = (int)td;
+                    }
 
                     GameState state = SetupFromFen(fen);
 
@@ -159,7 +167,7 @@ namespace ChessEngineDriver
                     else if (cmd == "bestMove")
                     {
                         int searchDepth = depth < 1 ? 3 : depth;
-                        Move? mv = AIEngine.FindBestMove(state, searchDepth);
+                        Move? mv = AIEngine.FindBestMoveTimed(state, searchDepth, timeMs);
                         if (mv == null)
                             Emit("{\"id\":\"" + J(id) + "\",\"ok\":false,\"error\":\"no legal move\"}");
                         else

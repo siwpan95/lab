@@ -70,7 +70,7 @@ export class EngineClient {
     });
   }
 
-  rpc(cmd, fen, depth, history) {
+  rpc(cmd, fen, depth, history, timeMs) {
     return new Promise((resolve, reject) => {
       if (this.dead) return reject(new Error(`${this.cfg.id} is not running`));
       const rid = String(++this.seq);
@@ -80,7 +80,9 @@ export class EngineClient {
       }, this.cfg.timeout || 60000);
       this.pending.set(rid, (msg) => { clearTimeout(timer); resolve(msg); });
       try {
-        this.proc.stdin.write(JSON.stringify({ id: rid, cmd, fen, depth, history }) + '\n');
+        // timeMs: Tier 2-B optional per-move budget; undefined/0 ⇒ engines do a
+        // fixed-depth search (identical to pre-Tier-2-B behaviour).
+        this.proc.stdin.write(JSON.stringify({ id: rid, cmd, fen, depth, history, timeMs }) + '\n');
       } catch (e) {
         clearTimeout(timer);
         this.pending.delete(rid);
@@ -89,8 +91,8 @@ export class EngineClient {
     });
   }
 
-  async bestMove(fen, depth, history) {
-    const r = await this.rpc('bestMove', fen, depth, history);
+  async bestMove(fen, depth, history, timeMs) {
+    const r = await this.rpc('bestMove', fen, depth, history, timeMs);
     if (!r.ok) throw new Error(r.error || 'bestMove failed');
     return r.move; // UCI string or null
   }

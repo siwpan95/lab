@@ -182,6 +182,8 @@ public class Driver {
                 String cmd = getStr(line, "cmd");
                 String fen = getStr(line, "fen");
                 int depth = getInt(line, "depth");
+                // Tier 2-B：可选的每步时间预算（毫秒）。缺省/0 ⇒ 固定深度搜索（行为同改造前）。
+                int timeMs = getInt(line, "timeMs");
 
                 GameState state = setupFromFen(fen);
                 if (cmd.equals("perft")) {
@@ -200,7 +202,7 @@ public class Driver {
                         state.RepHistory = rep;
                     }
                     int sd = depth < 1 ? 3 : depth;
-                    Move mv = AIEngine.FindBestMove(state, sd);
+                    Move mv = AIEngine.FindBestMoveTimed(state, sd, timeMs);
                     if (mv == null)
                         System.out.println("{\"id\":\"" + j(id) + "\",\"ok\":false,\"error\":\"no legal move\"}");
                     else

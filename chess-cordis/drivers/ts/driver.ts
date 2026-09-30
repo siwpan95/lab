@@ -95,6 +95,8 @@ function main() {
     const fen = req.fen ?? '';
     const depth = Number(req.depth ?? 0);
     const rid = req.id ?? '';
+    // Tier 2-B：可选的每步时间预算（毫秒）。缺省/0 ⇒ 走原来的固定深度搜索。
+    const timeMs = Number.isFinite(Number(req.timeMs)) ? Number(req.timeMs) : 0;
     try {
       const state = setupFromFen(fen);
       if (cmd === 'perft') {
@@ -110,7 +112,7 @@ function main() {
           for (const k of history) rep[k] = (rep[k] ?? 0) + 1;
           state.repHistory = rep;
         }
-        const mv = AIEngine.FindBestMove(state, depth > 0 ? depth : 2);
+        const mv = AIEngine.FindBestMove(state, depth > 0 ? depth : 2, timeMs);
         process.stdout.write(JSON.stringify({ id: rid, ok: true, move: mv ? moveToUci(mv) : null, score: 0 }) + '\n');
       } else if (cmd === 'positionKey') {
         // 只读校验辅助：返回请求 FEN 的 engine.mjs 兼容局面键。

@@ -172,6 +172,11 @@ fn main() {
         let cmd = get_field(line, "cmd").unwrap_or("");
         let fen = get_field(line, "fen").unwrap_or("");
         let depth: i32 = get_field(line, "depth").and_then(|x| x.parse().ok()).unwrap_or(0);
+        // timeMs: Tier 2-B optional per-move budget in milliseconds.
+        // Absent/0 ⇒ fixed-depth search (behaviour unchanged from before Tier 2-B).
+        let time_ms: i32 = get_field(line, "timeMs")
+            .and_then(|x| x.parse::<f64>().ok())
+            .unwrap_or(0.0) as i32;
         let mut state = from_fen(fen);
         match cmd {
             "perft" => {
@@ -193,7 +198,7 @@ fn main() {
                     }
                     state.rep_history = Some(Rc::new(rep));
                 }
-                match AIEngine::find_best_move(&state, depth) {
+                match AIEngine::find_best_move_timed(&state, depth, time_ms) {
                     Some(mv) => {
                         let u = move_to_uci(&mv);
                         writeln!(out, "{{\"id\":\"{}\",\"ok\":true,\"move\":\"{}\",\"score\":0}}", id, u).unwrap();

@@ -93,6 +93,10 @@ let main _ =
                 let tryInt (key: string) =
                     let mutable v = JsonElement()
                     if root.TryGetProperty(key, &v) then v.GetInt32() else 0
+                // Tier 2-B 每步时间预算（毫秒）。缺省/非数字 ⇒ 0（固定深度，行为不变）。
+                let tryNum (key: string) =
+                    let mutable v = JsonElement()
+                    if root.TryGetProperty(key, &v) && v.ValueKind = JsonValueKind.Number then v.GetDouble() else 0.0
                 let id = tryStr "id"
                 let cmd = tryStr "cmd"
                 let fen = tryStr "fen"
@@ -123,7 +127,8 @@ let main _ =
                         else None
                     state.RepHistory <- rep
                     let sd = if depth < 1 then 3 else depth
-                    let mv = findBestMove state sd
+                    let timeMs = int (tryNum "timeMs")
+                    let mv = findBestMoveTimed state sd timeMs
                     printfn "{\"id\":\"%s\",\"ok\":true,\"move\":\"%s\",\"score\":0}" (j id) (j (moveToUci mv))
                 | "positionKey" ->
                     // Read-only verification aid: returns the engine.mjs-compatible key

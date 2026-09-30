@@ -291,8 +291,65 @@ class AIEngine {
         });
     }
 
+    // ---------------------------- Tier 2-B 时间控制 ----------------------------
+    // 迭代加深 + 软/硬双阈值（与 JsChess/chessAI.js 的 SearchClock、drivers/go 的
+    // searchClock 同构）：
+    //   · 软阈值 = 预算 × SOFT_NUMERATOR / SOFT_DENOMINATOR：开新一轮深度前检查，
+    //     已用时间达到就不再开新轮，避免"明知做不完还开局"；
+    //   · 硬阈值：搜索过程中每 NODES_PER_TIME_CHECK 个节点查一次，超限置 aborted
+    //     并立即中断；被中断的那一轮**结果作废**，只采用上一轮完整深度的结果，
+    //     从而保证返回的着法始终来自一次完整搜索。
+    // timeMs <= 0（缺省）时 clock == null，完全不启用：ClockTick 恒 false、
+    // ClockOverSoft 恒 false，走原来的固定深度搜索路径，结果与改造前逐字节一致。
+    static final int NODES_PER_TIME_CHECK = 2048;   // 每 2048 个节点查一次硬阈值
+    static final int SOFT_NUMERATOR = 1;
+    static final int SOFT_DENOMINATOR = 2;          // 软阈值 = 预算 × 1/2
+
+    static final class SearchClock {
+        final long startNs = System.nanoTime();
+        long limitMs;   // 硬阈值（预算总额）
+        long softMs;    // 软阈值（预算 × 1/2）
+        long nodes;
+        boolean aborted;
+
+        SearchClock(long timeMs) {
+            this.limitMs = timeMs;
+            this.softMs = timeMs * SOFT_NUMERATOR / SOFT_DENOMINATOR;
+        }
+
+        long elapsedMs() { return (System.nanoTime() - startNs) / 1000000L; }
+
+        // 软阈值：是否不该再开新一轮深度
+        boolean overSoft() { return elapsedMs() >= softMs; }
+
+        // 硬阈值：每 NODES_PER_TIME_CHECK 个节点查一次；超限置 aborted
+        boolean tick() {
+            ++nodes;
+            if ((nodes & (NODES_PER_TIME_CHECK - 1)) == 0 && elapsedMs() >= limitMs)
+                aborted = true;
+            return aborted;
+        }
+    }
+
+    // 当前搜索的时钟（无时间控制时为 null）。单线程的 driver 一次只服务一个请求，
+    // 故用静态字段即可（与 Go/C# 侧同构）。
+    static SearchClock clock = null;
+
+    // 启动（timeMs > 0）或关闭（timeMs <= 0）时间控制。
+    static void BeginClock(int timeMs) {
+        clock = timeMs <= 0 ? null : new SearchClock(timeMs);
+    }
+
+    // 硬阈值检查：超限返回 true（调用方立即中断）。
+    static boolean ClockTick() { return clock != null && clock.tick(); }
+
+    // 软阈值检查：是否已不该再开新一轮深度。
+    static boolean ClockOverSoft() { return clock != null && clock.overSoft(); }
+
     // ---------------------------- 静态搜索（quiescence） ----------------------------
     static int Quiescence(GameState state, int alpha, int beta, int qdepth) {
+        // Tier 2-B：同 Negamax，途中按节点数检查硬阈值。
+        if (ClockTick()) return alpha;
         int stand = EvaluateSide(state);
         if (stand >= beta) return beta;
         if (stand > alpha) alpha = stand;
@@ -315,6 +372,8 @@ class AIEngine {
 
     // ---------------------------- 主搜索：negamax + alpha-beta ----------------------------
     static int Negamax(GameState state, int depth, int alpha, int beta, int ply) {
+        // Tier 2-B：硬阈值按节点数周期检查，超限立即中断（未完成的一轮会被丢弃）。
+        if (ClockTick()) return alpha;
         List<Move> moves = Rules.GenerateAllLegalMoves(state);
 
         if (moves.isEmpty()) {
@@ -340,13 +399,8 @@ class AIEngine {
         return best;
     }
 
-    // ---------------------------- 对外接口：求最佳走法 ----------------------------
-    // 无合法走法时返回 null（对齐 C++ 的 std::nullopt）
-    static Move FindBestMove(GameState state, int depth) {
-        List<Move> moves = Rules.GenerateAllLegalMoves(state);
-        if (moves.isEmpty()) return null;
-        if (moves.size() == 1) return moves.get(0);
-
+    // 根结点一轮搜索（给定深度），返回最佳走法。
+    static Move SearchRoot(GameState state, List<Move> moves, int depth) {
         OrderMoves(moves);
 
         Move bestMove = moves.get(0);
@@ -358,6 +412,7 @@ class AIEngine {
             GameState child = state.CloneLight();
             Rules.ApplyMove(child, m, false);
             int score = -Negamax(child, depth - 1, -beta, -alpha, 1);
+            if (clock != null && clock.aborted) break; // 硬阈值中断：本轮作废
             if (score > bestScore) {
                 bestScore = score;
                 bestMove = m;
@@ -365,5 +420,51 @@ class AIEngine {
             if (score > alpha) alpha = score;
         }
         return bestMove;
+    }
+
+    // 时间受控的最佳走法。无合法走法时返回 null（对齐 C++ 的 std::nullopt）。
+    // timeMs > 0 时启用 Tier 2-B 迭代加深（软/硬双阈值）；
+    // timeMs <= 0（或缺省）时走原来的固定深度单次搜索，结果与改造前完全一致。
+    static Move FindBestMoveTimed(GameState state, int depth, int timeMs) {
+        List<Move> moves = Rules.GenerateAllLegalMoves(state);
+        if (moves.isEmpty()) return null;
+        if (moves.size() == 1) return moves.get(0);
+
+        int cap = depth > 0 ? depth : 3;
+
+        if (timeMs <= 0 || cap <= 1) {
+            // 原路径：固定深度单次搜索（不含任何时钟开销）。
+            // timeMs <= 0 时严格沿用调用方传入的 depth，保证与 Tier 2-B 前完全一致。
+            int fixedDepth = timeMs <= 0 ? depth : cap;
+            SearchClock prev = clock;
+            clock = null;
+            Move mv = SearchRoot(state, new ArrayList<>(moves), fixedDepth);
+            clock = prev;
+            return mv;
+        }
+
+        // 迭代加深：d = 1..cap，软阈值管"是否开新一轮"，硬阈值管"中断当前轮"。
+        BeginClock(timeMs);
+        Move bestMove = moves.get(0);
+        boolean completed = false; // 是否已至少完成一轮（中断时回退到它）
+        try {
+            for (int d = 1; d <= cap; ++d) {
+                if (completed && ClockOverSoft()) break;
+                clock.aborted = false;
+                Move mv = SearchRoot(state, new ArrayList<>(moves), d);
+                if (clock.aborted && completed) break; // 丢弃未完成的这一轮
+                bestMove = mv;
+                completed = true;
+            }
+        } finally {
+            clock = null;
+        }
+        return bestMove; // 至少完成过 depth=1 的一轮，必为合法着法
+    }
+
+    // ---------------------------- 对外接口：求最佳走法 ----------------------------
+    // 无时间控制的固定深度搜索（保持原有调用约定）：委托给 FindBestMoveTimed(timeMs=0)。
+    static Move FindBestMove(GameState state, int depth) {
+        return FindBestMoveTimed(state, depth, 0);
     }
 }

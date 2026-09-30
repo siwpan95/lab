@@ -61,6 +61,9 @@ public:
     // 对外接口：求最佳走法（无合法走法时为 nullopt）
     static std::optional<Move> FindBestMove(const GameState& state, int depth);
 
+    // Tier 2-B 时间受控搜索；timeMs <= 0 时保持固定深度搜索行为。
+    static std::optional<Move> FindBestMoveTimed(const GameState& state, int depth, int timeMs);
+
     // 静态搜索（quiescence）
     static int Quiescence(const GameState& state, int alpha, int beta, int qdepth);
 
@@ -68,6 +71,7 @@ private:
     static int PieceIndex(char p);
     static int MoveOrderScore(const Move& m);
     static void OrderMoves(std::vector<Move>& moves);
+    static Move SearchRoot(const GameState& state, std::vector<Move> moves, int depth);
     static int GetPST(int pieceIdx, int pos); // 返回白方视角 PST 值
 };
 

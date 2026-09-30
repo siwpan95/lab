@@ -69,6 +69,8 @@ function main() {
       const fen = req.fen ?? '';
       const depth = req.depth ? Number(req.depth) : 0;
       const history = Array.isArray(req.history) ? req.history : [];
+      // Tier 2-B：可选的每步时间预算（毫秒）。缺省/0 ⇒ 走原来的固定深度搜索。
+      const timeMs = Number.isFinite(Number(req.timeMs)) ? Number(req.timeMs) : 0;
       try {
         const gs = fromFen(fen);
         // Build the repetition-penalty lookup from the runner-supplied history
@@ -79,7 +81,7 @@ function main() {
           gs.RepHistory = rep;
         }
         if (cmd === 'bestMove') {
-          const mv = AIEngine.FindBestMove(gs, depth > 0 ? depth : 3);
+          const mv = AIEngine.FindBestMove(gs, depth > 0 ? depth : 3, timeMs);
           const move = mv ? moveToUci(mv) : null;
           process.stdout.write(JSON.stringify({ id, ok: true, move, score: 0 }) + '\n');
         } else if (cmd === 'perft') {

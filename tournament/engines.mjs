@@ -102,6 +102,19 @@ const PY = envOr('LAB_PYTHON', 'python');
 const DOTNET = envOr('LAB_DOTNET', 'dotnet');
 const JAVA = envOr('LAB_JAVA', 'java');
 
+// Tier 2-B：每步时间预算（毫秒）。0 = 关闭时间控制（走原来的固定深度搜索）。
+// 引擎侧 timeMs 缺省/0 时行为与 Tier 2-B 之前完全一致，所以这是“打开”开关而非改变语义。
+// 覆盖方式：环境变量 TIME_PER_MOVE_MS（无人值守任务建议写进 tournament/local.env）。
+// 注意（2026-09-30）：预算过紧会压低慢引擎（py 实测 depth-3 ≈1.7s）的有效深度。
+// 默认 **0（关闭）** —— 依据实测：开启 3000ms 后，慢引擎被压到更浅的有效深度
+// （py 从 9.5 分掉到 5.0 分、0 胜），三重复率反而由 43.1% 回升到 51.4%、
+// 决定性局由 51.4% 降到 41.7%，**与"减少三重复"的目标相反**。
+// 时间控制能力已实装并验收（见 tournament/validate_timectrl.mjs），按需显式开启：
+//   TIME_PER_MOVE_MS=8000 等（或写进 tournament/local.env）
+// 参考量级：py depth-3 ≈1.7s、fs depth-4 尖峰 ≈39s，故任何"只对快引擎无感"的
+// 预算都会压到 py/fs；要真正不伤慢引擎需 10s 以上量级（待测）。
+export const TIME_PER_MOVE_MS = Number(envOr('TIME_PER_MOVE_MS', 0)) || 0;
+
 export const ENGINES = [
   {
     id: 'go', language: 'Go', enabled: true,

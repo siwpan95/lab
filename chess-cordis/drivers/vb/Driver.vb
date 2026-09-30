@@ -195,6 +195,8 @@ Module Driver
                     Dim cmd As String = getStr(line, "cmd")
                     Dim fen As String = getStr(line, "fen")
                     Dim depth As Integer = getInt(line, "depth")
+                    ' timeMs：Tier 2-B 可选的每步时间预算（毫秒）。缺省/0 ⇒ 固定深度搜索（行为不变）。
+                    Dim timeMs As Integer = getInt(line, "timeMs")
                     Dim state As GameState = setupFromFen(fen)
                     If cmd = "perft" Then
                         Dim nodes As Long = perft(state, depth)
@@ -214,7 +216,7 @@ Module Driver
                             Next
                             state.RepHistory = rep
                         End If
-                        Dim mv As Move? = AIEngine.FindBestMove(state, sd)
+                        Dim mv As Move? = AIEngine.FindBestMoveTimed(state, sd, timeMs)
                         If mv Is Nothing Then
                             outLine("{""id"":""" & esc(id) & """,""ok"":false,""error"":""no legal move""}")
                         Else

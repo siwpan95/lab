@@ -19,6 +19,7 @@ Option Infer On
 
 Imports System
 Imports System.Collections.Generic
+Imports System.Diagnostics
 Imports System.Threading
 Imports ChessCore
 
@@ -379,6 +380,61 @@ Namespace ChessAIEngine
             Return victim * 10 - attacker
         End Function
 
+        ' ===== Tier 2-B 时间控制 =====
+        ' 迭代加深 + 软/硬双阈值（与 JsChess/chessAI.js 的 SearchClock、Go 版 searchClock 同构）：
+        '   · 软阈值：开新一轮深度前检查（已用时间 >= 预算 × 1/2 就不再开新轮），
+        '     避免"明知做不完还开局"；
+        '   · 硬阈值：搜索过程中按节点数周期检查（每 NodesPerTimeCheck 个节点），超限立即中断；
+        '     被中断的那一轮**结果作废**，只采用上一轮完整深度的结果，从而保证返回的着法
+        '     始终来自一次完整搜索。
+        ' timeMs <= 0 时 clock.Active = False，完全不启用（走原固定深度路径，行为不变）。
+        Private Const NodesPerTimeCheck As Integer = 2048
+        Private Const SoftNumerator As Integer = 1
+        Private Const SoftDenominator As Integer = 2  ' 软阈值 = 预算 × 1/2
+
+        Private Structure SearchClock
+            Public Active As Boolean     ' False = 未启用时间控制（原固定深度路径）
+            Public LimitMs As Long       ' 硬阈值：预算
+            Public SoftMs As Long        ' 软阈值：预算 × 1/2
+            Public Nodes As Long
+            Public Aborted As Boolean
+            Public Sw As Stopwatch
+        End Structure
+
+        ' 当前搜索的时钟（结构体默认值即 Active=False 的"未启用"态）
+        Private Shared clock As SearchClock
+
+        ' BeginClock 启动（timeMs > 0）或关闭（timeMs <= 0）时间控制。
+        Private Shared Sub BeginClock(ByVal timeMs As Integer)
+            If timeMs <= 0 Then
+                clock = New SearchClock()
+                Return
+            End If
+            clock = New SearchClock()
+            clock.Active = True
+            clock.LimitMs = CLng(timeMs)
+            clock.SoftMs = clock.LimitMs * SoftNumerator \ SoftDenominator
+            clock.Nodes = 0
+            clock.Aborted = False
+            clock.Sw = Stopwatch.StartNew()
+        End Sub
+
+        ' ClockTick 每 NodesPerTimeCheck 个节点查一次硬阈值；返回 True 表示应立即中断。
+        Private Shared Function ClockTick() As Boolean
+            If Not clock.Active Then Return False
+            If clock.Aborted Then Return True
+            clock.Nodes += 1
+            If clock.Nodes Mod NodesPerTimeCheck = 0 Then
+                If clock.Sw.ElapsedMilliseconds >= clock.LimitMs Then clock.Aborted = True
+            End If
+            Return clock.Aborted
+        End Function
+
+        ' ClockOverSoft 软阈值：是否不该再开新一轮深度。
+        Private Shared Function ClockOverSoft() As Boolean
+            Return clock.Active AndAlso clock.Sw.ElapsedMilliseconds >= clock.SoftMs
+        End Function
+
         ' ===== 主搜索：negamax + alpha-beta =====
 
         ' 返回当前行棋方视角的分值
@@ -388,6 +444,9 @@ Namespace ChessAIEngine
                                        Optional ByVal token As CancellationToken = Nothing) As Integer
             ' 取消请求：立即中止本次搜索（由 FindBestMove 的 Try/Catch 捕获为 Nothing）
             If token.IsCancellationRequested Then Throw New OperationCanceledException()
+
+            ' Tier 2-B：硬阈值按节点数周期检查，超限立即中断（未完成的一轮会被丢弃）
+            If ClockTick() Then Return alpha
 
             ' 生成当前方全部合法走法（同时可判终局）
             Dim moves As List(Of Move) = Rules.GenerateAllLegalMoves(state)
@@ -428,6 +487,9 @@ Namespace ChessAIEngine
                                            Optional ByVal token As CancellationToken = Nothing) As Integer
             If token.IsCancellationRequested Then Throw New OperationCanceledException()
 
+            ' Tier 2-B：同 Negamax，途中按节点数检查硬阈值。
+            If ClockTick() Then Return alpha
+
             Dim stand As Integer = EvaluateSide(state)
             If stand >= beta Then Return beta
             If stand > alpha Then alpha = stand
@@ -454,34 +516,82 @@ Namespace ChessAIEngine
         ' depth: 搜索深度（1=新手 2=中级 3=高级）
         ' 返回 Move?：无合法走法（将死/逼和）时为 Nothing
 
+        ' SearchRoot 根结点一轮搜索（给定深度），返回最佳走法。
+        ' 调用方负责 OrderMoves：这里不再排序，避免对同一列表重复排序带来的顺序抖动。
+        Private Shared Function SearchRoot(ByVal state As GameState, ByVal moves As List(Of Move),
+                                           ByVal depth As Integer,
+                                           Optional ByVal token As CancellationToken = Nothing) As Move
+            Dim bestMove As Move = moves(0)
+            Dim bestScore As Integer = -Infinity
+            Dim alpha As Integer = -Infinity
+            Dim beta As Integer = Infinity
+
+            For Each m As Move In moves
+                ' 取消请求：在根着法循环层尽早退出，避免把已废弃局面的结果应用到棋盘
+                If token.IsCancellationRequested Then Throw New OperationCanceledException()
+                Dim child As GameState = state.CloneLight()
+                Rules.ApplyMove(child, m, False)
+                Dim score As Integer = -Negamax(child, depth - 1, -beta, -alpha, 1, token)
+                If clock.Active AndAlso clock.Aborted Then Exit For ' 硬阈值中断：本轮作废
+                If score > bestScore Then
+                    bestScore = score
+                    bestMove = m
+                End If
+                If score > alpha Then alpha = score
+            Next
+
+            Return bestMove
+        End Function
+
+        ' FindBestMoveTimed 时间受控的最佳走法。
+        ' timeMs > 0 时启用 Tier 2-B 迭代加深（软/硬双阈值）；
+        ' timeMs <= 0 时走原来的固定深度单次搜索（严格沿用调用方 depth），结果与改造前完全一致。
+        Public Shared Function FindBestMoveTimed(ByVal state As GameState, ByVal depth As Integer,
+                                                 ByVal timeMs As Integer,
+                                                 Optional ByVal token As CancellationToken = Nothing) As Move?
+            Dim moves As List(Of Move) = Rules.GenerateAllLegalMoves(state)
+            If moves.Count = 0 Then Return Nothing
+            If moves.Count = 1 Then Return moves(0)
+
+            OrderMoves(moves)
+
+            Dim cap As Integer = If(depth > 0, depth, 3)
+
+            If timeMs <= 0 OrElse cap <= 1 Then
+                ' 原路径：固定深度单次搜索（不含任何时钟开销）。
+                ' timeMs <= 0 时严格沿用调用方传入的 depth，保证与 Tier 2-B 前完全一致。
+                Dim fixedDepth As Integer = If(timeMs <= 0, depth, cap)
+                Dim prev As SearchClock = clock
+                clock = New SearchClock() ' Active = False：关闭时间控制
+                Dim mv As Move = SearchRoot(state, moves, fixedDepth, token)
+                clock = prev
+                Return mv
+            End If
+
+            ' 迭代加深：d = 1..cap，软阈值管"是否开新一轮"，硬阈值管"中断当前轮"。
+            BeginClock(timeMs)
+            Dim bestMove As Move = moves(0)
+            Dim completed As Boolean = False ' 是否已至少完成一轮（中断时回退到它）
+            Try
+                For d As Integer = 1 To cap
+                    If completed AndAlso ClockOverSoft() Then Exit For
+                    clock.Aborted = False
+                    Dim mv As Move = SearchRoot(state, New List(Of Move)(moves), d, token)
+                    If clock.Aborted AndAlso completed Then Exit For ' 丢弃未完成的这一轮
+                    bestMove = mv
+                    completed = True
+                Next
+            Finally
+                clock = New SearchClock()
+            End Try
+            Return bestMove ' 至少完成过 depth=1 的一轮，必为合法着法
+        End Function
+
+        ' FindBestMove 无时间控制的固定深度搜索（保持原有调用约定）：内部以 timeMs=0 委托。
         Public Shared Function FindBestMove(ByVal state As GameState, ByVal depth As Integer,
                                             Optional ByVal token As CancellationToken = Nothing) As Move?
             Try
-                Dim moves As List(Of Move) = Rules.GenerateAllLegalMoves(state)
-                If moves.Count = 0 Then Return Nothing
-                If moves.Count = 1 Then Return moves(0)
-
-                OrderMoves(moves)
-
-                Dim bestMove As Move = moves(0)
-                Dim bestScore As Integer = -Infinity
-                Dim alpha As Integer = -Infinity
-                Dim beta As Integer = Infinity
-
-                For Each m As Move In moves
-                    ' 取消请求：在根着法循环层尽早退出，避免把已废弃局面的结果应用到棋盘
-                    If token.IsCancellationRequested Then Return Nothing
-                    Dim child As GameState = state.CloneLight()
-                    Rules.ApplyMove(child, m, False)
-                    Dim score As Integer = -Negamax(child, depth - 1, -beta, -alpha, 1, token)
-                    If score > bestScore Then
-                        bestScore = score
-                        bestMove = m
-                    End If
-                    If score > alpha Then alpha = score
-                Next
-
-                Return bestMove
+                Return FindBestMoveTimed(state, depth, 0, token)
             Catch ex As OperationCanceledException
                 ' 后台线程被新对局/悔棋/切换模式取消 → 返回 Nothing，由 UI epoch 守卫一并丢弃
                 Return Nothing

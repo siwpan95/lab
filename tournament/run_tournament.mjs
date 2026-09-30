@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
-  ENGINES, TOURNAMENT_DEPTH, MAX_PLY, GAMES_PER_PAIR, START_FEN,
+  ENGINES, TOURNAMENT_DEPTH, MAX_PLY, GAMES_PER_PAIR, TIME_PER_MOVE_MS, START_FEN,
 } from './engines.mjs';
 import { EngineClient } from './engine_client.mjs';
 import * as E from './engine.mjs';
@@ -142,7 +142,7 @@ async function playGame(white, black, gameNo, whiteId, blackId, depth, openingPl
       // history = positions seen so far (all but the current one) so engines can
       // penalize moving back into an already-played position (anti-threefold).
       const history = state.keys.slice(0, -1);
-      uci = await eng.bestMove(E.serializeFen(state), depth, history);
+      uci = await eng.bestMove(E.serializeFen(state), depth, history, TIME_PER_MOVE_MS);
     } catch (e) {
       // timeout / crash / subprocess error → forfeit this game, kill engine.
       crashed = engId;

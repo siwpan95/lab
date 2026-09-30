@@ -22,6 +22,9 @@ type request struct {
 	// History: engine.mjs position keys seen so far this game (excludes the
 	// current position). Used by the repetition penalty in chess_ai.go. Absent/empty ⇒ no penalty.
 	History []string `json:"history"`
+	// TimeMs: Tier 2-B optional per-move budget in milliseconds.
+	// Absent/0 ⇒ fixed-depth search (behaviour unchanged from before Tier 2-B).
+	TimeMs float64 `json:"timeMs"`
 }
 
 func send(out *bufio.Writer, obj interface{}) {
@@ -160,7 +163,7 @@ func main() {
 				}
 				s.RepHistory = rep
 			}
-			mv := FindBestMove(&s, depth)
+			mv := FindBestMoveTimed(&s, depth, int(req.TimeMs))
 			if mv == nil {
 				send(out, map[string]interface{}{"id": req.ID, "ok": true, "move": nil, "score": 0})
 			} else {

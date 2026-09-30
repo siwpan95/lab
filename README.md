@@ -1,6 +1,7 @@
-# . — 多语言国际象棋引擎移植实验场
+# lab — 多语言国际象棋引擎移植 + 对局多样性研究实验场
 
 > 10 种编程语言的功能对等国际象棋引擎 + 基于 [Cordis](https://cordis.js.org/) 的统一测试 harness（`chess-cordis`）。
+> 在此之上，`tournament/` 是**跨语言循环赛系统**，围绕"削减三重复和棋、增加对局多样性"做了 Tier 1（开局库）→ 2-A（重复惩罚）→ 2-B（时间控制）→ 2-C（差异化评估）四步改造（详见 §9）。
 > 权威架构与设计见 `chess-cordis/UNIFIED_ARCHITECTURE_REPORT.md`；依赖与运行环境见 `REQUIREMENTS.md`。
 
 ## 1. 这是什么
@@ -55,6 +56,7 @@ node src/timing.js    # 10 引擎权威 timing 基准（Start / Kiwipete d4）
 - **bestMove 共识**：FreeQueen `d1d5`、FreeRook `d1d4` 全引擎一致。
 - **已知分歧（非缺陷）**：Start d2（depth-2，eval-invariant=false，无唯一最优解）F#/VB/CPP 选不同走法，属预期分歧。
 - **已修复项**：C++ driver FEN 越界写（CWE-787）已加边界守卫；F# `evaluate()` 已补 6 张 PST。
+- **F# 崩溃修复（两处）**：① alpha-beta 死剪枝（`if a >= beta then ()` 无 break → depth=4 指数爆炸、超时弃权）已改为真实 `while`+`cut`；② Tier 2-C 评估三术语曾逐兵嵌套扫描（每叶 ~6–7 倍开销）导致 depth=4 尖峰超时，已合并为单遍棋盘扫描（`maxPerMove` 50.6s → 39.1s）。
 - 详见 `chess-cordis/UNIFIED_ARCHITECTURE_REPORT.md` §9.6。
 
 ## 6. 各语言引擎单独跑自测（97 项核心 + perft 黄金断言）
@@ -83,7 +85,7 @@ node src/timing.js    # 10 引擎权威 timing 基准（Start / Kiwipete d4）
 - 已 `git init`，`.gitignore` 排除二进制产物与本地草稿：
   - 二进制：`bin/ obj/ target/ out/ __pycache__/ node_modules/ *.exe *.dll *.so *.dylib`
   - 本地研究缓存（非交付物，仅本地保留）：`_archive/` `_removed_glue_archive/` `_mingw.nupkg` `cordis-main/` `paper-main/`
-- **已推送到 Gitee**：远端 `https://gitee.com/siwpan/lab.git`（当前为**私有**仓库）。本地 **16 个提交 + 13 个 tag 全部已推送**（`git push origin master` + `git push origin --tags` 均已验证远端一致）。
+- **已推送到 Gitee**：远端 `https://gitee.com/siwpan/lab.git`（**公开**仓库）。本地 **33 个提交 + 13 个 tag 全部已推送**（`git push origin master` + `git push origin --tags` 均已验证远端一致）。
   - tag 序列：<code>v0.1.0</code> → <code>harness-v1</code> → <code>engine-ports-v1</code> → <code>license-v1</code> → <code>tournament-v1</code> → <code>tournament-report-2026-09-28</code> → <code>tournament-parity-v1</code> → <code>spec-clarify-v1</code> → <code>engines-enable-cpp-cs-fs-v1</code> → <code>infra-build-v1</code> → <code>engines-enable-java-v1</code> → <code>docs-readme-v1</code> → <code>chore-gitignore-v1</code>。
   - 建仓与配 `origin` 用 allin 仓的 `tools/gitee_release.py`（`create` + `remote` 子命令）；转公开用其 `public` 子命令。
 - **二进制产物不入仓**：cpp/cs/fs/java 的 `*.exe/*.dll/out/*.class` 被 `.gitignore` 忽略，克隆后需本地重建，见 §10。
@@ -105,8 +107,11 @@ node src/timing.js    # 10 引擎权威 timing 基准（Start / Kiwipete d4）
 - `engine.mjs` —— 独立纯 JS 规则引擎（perft 黄金值 5/5 通过，`applyUci` 对非法走法抛错），作为**权威裁决层**。
 - `engine_client.mjs` —— JSON-stdio 子进程客户端（spawn + `ready` 守卫 + 带超时 rpc）。
 - `engines.mjs` —— 10 引擎清单（`enabled` / `language` / `cmd` / `timeout`）。
-- `run_tournament.mjs` —— 循环赛主逻辑：探测 → 对局 → `applyUci` 校验 → 终局判定 → 积分 → 写 Markdown 战报。
+- `run_tournament.mjs` —— 循环赛主逻辑：探测 → 对局 → `applyUci` 校验 → 终局判定 → 积分 → 增量写 Markdown 战报。
+- `opening_book.mjs` —— 随机开局库（Tier 1）。
 - `probe.mjs` —— 开局探测（确认每个引擎能返回合法 JSON）。
+- **验收门**：`validate_penalty.mjs`（Tier 2-A 局面键奇偶校验）、`validate_eval_profile.mjs`（Tier 2-C 风格档哈希校验）、`validate_timectrl.mjs`（Tier 2-B 等价性/预算/合法性）。
+- **度量工具**：`divergence_probe.mjs`（走法分歧率）、`measure_engine_timing.mjs`（每引擎耗时基线）、`compare_threefold.py`（三重复公平对比）。
 
 **运行**：
 
@@ -118,10 +123,34 @@ TOURNAMENT_DEPTH=4 node run_tournament.mjs      # 更深的搜索（更慢）
 ENGINES_FILTER=go,rust,py node run_tournament.mjs   # 只跑子集冒烟
 ```
 
-环境变量：`TOURNAMENT_DEPTH`（默认 3）、`GAMES_PER_PAIR`（默认 2）、`ENGINES_FILTER`（逗号分隔子集）。
+环境变量：`TOURNAMENT_DEPTH`（默认 3）、`GAMES_PER_PAIR`（默认 2）、`ENGINES_FILTER`（逗号分隔子集）、
+`OPENING_PLIES`（开局库步数，默认 6，`0`=关）、`TIME_PER_MOVE_MS`（全局每步预算，`0`=关）、
+`TIME_PER_MOVE_MODE=perEngine`（使用每引擎预算表）。
 引擎崩溃/超时/非法着法 → 该局判负并 kill，后续该引擎对局判不战而胜，**保证有界不挂死**。
 
 **自动化**：每日 03:00 由 recurring automation 自动跑 `TOURNAMENT_DEPTH=4 node run_tournament.mjs` 并生成当日战报。
+
+### 9.1 对局多样性改造（Tier 1 → 2-A → 2-B → 2-C）
+
+10 引擎最初共用同一套评估权重（PST 逐字复制自 C++），棋风趋同，depth=4 下三重复和棋泛滥。
+围绕"削减三重复和棋"做了四步改造（均**只改 runner 或纯 eval，走法生成/perft/合法性零影响**）：
+
+| 阶段 | 改动 | 三重复率（9 引擎互弈口径） |
+|---|---|---|
+| 基线 | — | 83.3% |
+| Tier 1 | 随机开局库（每局随机预走 6 步，32 条合法开局线） | — |
+| Tier 2-A | 重复局面惩罚（每引擎 eval 对已出现局面 −60×count） | 63.9% |
+| Tier 2-C | 差异化评估档（10 引擎各配独立风格 profile） | 52.8% |
+| **当前默认** | 开局库 + 惩罚 + profile（fs 修复后） | **43.1%** |
+
+决定性对局占比从 16.7% 提升到 **51.4%**；走法分歧率从 ~0% 升到 21.9%。
+
+- **Tier 2-A 重复惩罚**：`bestMove` 请求携带 `history`（本局已出现的局面键），各引擎 eval 内对重复局面扣分。
+- **Tier 2-C 评估档**：10 档风格（balanced/aggressive/materialist/pawnstructure/kingsafety/passer/solid/gambit/hypermodern/endgame），
+  新增王安全兵盾、兵形（叠兵/孤兵/通路兵）、双象三组镜像差值术语；权重规范源在 `validate_eval_profile.mjs`。
+- **Tier 2-B 时间控制**（已实装但**默认关闭**）：迭代加深 + 软/硬双阈值，`bestMove` 请求加可选 `timeMs`。
+  实测**任何会实际触发的预算都会压低慢引擎（py/fs/ts/js）有效深度、反而增加三重复**（全局 3000ms → 51.4%、
+  每引擎预算 → 59.7%），故默认走固定深度；仅作可显式开启的能力保留（崩溃保护场景）。
 
 ## 10. 构建编译型引擎产物（build_engines.sh）
 

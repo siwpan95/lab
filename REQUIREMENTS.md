@@ -15,7 +15,7 @@
 | 需求 | 版本 / 说明 | 用途 |
 |---|---|---|
 | Node.js | ≥ 20（host.js / stress.js 用 ESM） | 运行 harness |
-| Python | 3.14+ | PyChess 引擎 + py 驱动 |
+| Python | 3.8+（本机 3.13.14） | PyChess 引擎 + py 驱动（纯标准库，见 §6） |
 | .NET 8 SDK | `dotnet` | C# 驱动（net8.0）、F# 驱动（net8.0） |
 | .NET Framework 4.x + `vbc` | Windows | VB.NET 驱动（`VBChessDriver.exe`） |
 | Java（JDK / JBR） | 11+ | Java 驱动 |
@@ -24,7 +24,9 @@
 | MinGW-w64 `g++` | 含静态链接支持 | C++ 驱动（`g++.exe -static`） |
 | TypeScript + esbuild | `tsc` 仅类型检查，`esbuild` 打包 driver | TS 驱动（`out/driver.cjs`） |
 
-> ⚠️ 本机重工具装在 `F:\` 盘（如 Python、.NET、MinGW-w64、Go、Rust 工具链）。这些**不是仓库要求**，仅说明若工具链不在 `PATH` 上需手动定位（旧报告曾因此误判"缺工具链"）。
+> ⚠️ 本机工具链实际落位（非仓库要求，仅说明：若工具链不在 `PATH` 上需手动定位）：
+>   .NET 8 = `D:/dotnet8`、JDK 21 = `D:/jdk21`、Python = `E:/Python314`、MinGW-w64 = `E:/mingw64`、Go = `D:/Go`。
+>   `tournament/local.env`（不入库）记录 `LAB_DOTNET` / `LAB_JAVA` 覆盖，clone 到新机按需自建。
 
 ## 3. chess-cordis 的 npm 依赖
 
@@ -79,5 +81,5 @@ harness 直接调用预构建的驱动产物。若需重建：
 
 ```bash
 cd PyChess
-python main.py test      # 97 项自测 + perft 黄金断言（110/111，1 项性能断言除外）
+python main.py test      # 111 项自测（97 项核心 + perft 黄金断言），全绿
 ```

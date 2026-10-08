@@ -3,7 +3,7 @@
 # penalty-augmented run. Isolates the 9-engine mutual sub-tournament
 # (excluding fs) so the comparison is not confounded by fs's crash in the
 # baseline (18 forfeit losses there vs 18 real games in the new run).
-import re, sys
+import os, re, sys
 
 EXCLUDE = {'fs'}  # fs crashed in baseline -> exclude from the "fair" set
 
@@ -37,8 +37,10 @@ def stats(games, only_mutual=False):
     rate = (100.0 * tf / tot) if tot else 0.0
     return tot, tf, dr, dec, rate
 
-base = r'D:/projects/lab/tournament/reports/2026-09-29__baseline_prePenalty.md'
-new  = r'D:/projects/lab/tournament/reports/2026-09-29.md'
+# 报告路径**去符盘**（铁律 5）：按脚本自身位置定位，换机/换 cwd 都成立
+_REPORTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reports')
+base = os.path.join(_REPORTS, '2026-09-29__baseline_prePenalty.md')
+new  = os.path.join(_REPORTS, '2026-09-29.md')
 
 for label, path in [('BASELINE (no penalty, fs crashed)', base), ('NEW (penalty on, fs fixed)', new)]:
     games = parse(path)

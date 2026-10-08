@@ -47,7 +47,8 @@ const LOCAL_ENV = loadLocalEnv(join(HERE, 'local.env'));
 const envOr = (key, fallback) => process.env[key] || LOCAL_ENV[key] || fallback;
 
 const FS_DLL = repo('chess-cordis', 'drivers', 'fsharp', 'bin', 'Release', 'net8.0', 'FSharpChessDriver.dll');
-const DOTNET = envOr('LAB_DOTNET', 'D:/dotnet8/dotnet.exe');
+// fallback 由**写死盘符**改为 PATH 上的 dotnet（铁律 5）；envOr 仍优先 LAB_DOTNET / local.env
+const DOTNET = envOr('LAB_DOTNET', 'dotnet');
 const MAX_PLY = 60;        // enough to reach the positions that crashed before
 const DEPTH = 4;           // the depth that used to time out
 const MOVE_TIMEOUT = 120000; // matches engines.mjs fs timeout (headroom)

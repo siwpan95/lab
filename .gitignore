@@ -43,6 +43,15 @@ tournament/reports/*.md
 # ⇒ 忽略真实的 local.env；入库的模板是 tournament/local.env.example（占位路径 + 说明）。
 tournament/local.env
 
+# ---- 可再生产物：运行日志 / tsc 检查输出 ----
+# 2026-10-09 评估结论（只留源，不入库）：
+#   * tournament/reports/run_*.log —— run_tournament.mjs 的 stdout 转储，重跑即再生，
+#     性质同上面已忽略的 reports/*.md（报告头自带生成时间/工具）；
+#   * chess-cordis/drivers/ts/tsc-check-out/ —— `tsc --outDir` 的产物，
+#     源 driver.ts + tsconfig.json 已在仓内，一条 tsc 即可重新生成（同 out/ 的处理）。
+*.log
+tsc-check-out/
+
 # ---- local scratch / research artifacts (not part of the deliverable) ----
 _archive/
 _removed_glue_archive/

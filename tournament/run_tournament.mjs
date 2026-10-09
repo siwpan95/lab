@@ -24,7 +24,7 @@
 //     whole tournament stays bounded and never hangs on a wedged subprocess.
 
 import { readFileSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
@@ -36,6 +36,13 @@ import { pickOpening, OPENING_PLIES_DEFAULT } from './opening_book.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPORTS_DIR = join(__dirname, 'reports');
+
+// Ply cap actually used by playGame. Equals MAX_PLY unless overridden via
+// TOURNAMENT_MAX_PLY (mainly so the MAX_PLY adjudication path can be tested
+// end-to-end with a short cap instead of burning 160 half-moves).
+const PLY_CAP = Number.isFinite(Number(process.env.TOURNAMENT_MAX_PLY)) && Number(process.env.TOURNAMENT_MAX_PLY) > 0
+  ? Number(process.env.TOURNAMENT_MAX_PLY)
+  : MAX_PLY;
 
 // Probe depth is deliberately shallow + fast; the real search strength is only
 // exercised inside the actual games (TOURNAMENT_DEPTH).
@@ -81,6 +88,40 @@ async function probeEngine(cfg) {
 }
 
 // ---------------------------------------------------------------------------
+// Adjudicate the CURRENT position: checkmate / stalemate / draw, else null.
+//
+// This is the SINGLE source of truth for terminal decisions, and it must be
+// callable both (a) at the top of each ply and (b) once more after the ply loop
+// exits on MAX_PLY. (b) matters: a game can legitimately END on the very last
+// allowed ply — the 160th half-move can deliver mate — and the old code fell
+// straight through to "max-ply draw", mis-recording a decisive game as a draw
+// (found by board-replay's independent replay: js vs cpp game 1, last move
+// g5e5 was actually mate for black).
+// Returns null when the game is not over yet.
+// ---------------------------------------------------------------------------
+function adjudicate(state, whiteId, blackId, openingName, moves, ply, crashed) {
+  if (E.isCheckmate(state)) {
+    // side to move is mated → opponent wins
+    const winner = state.whiteToMove ? blackId : whiteId;
+    return { opening: openingName, result: 'win', winner, loser: state.whiteToMove ? whiteId : blackId,
+             moves, ply, reason: 'checkmate', crashed };
+  }
+  if (E.isStalemate(state)) {
+    return { opening: openingName, result: 'draw', winner: null, loser: null, moves, ply,
+             reason: 'stalemate', crashed };
+  }
+  if (E.isDraw(state)) {
+    // fifty-move / threefold / insufficient material
+    let why = 'draw';
+    if (E.isFiftyMoveDraw(state)) why = 'fifty-move';
+    else if (E.isThreefold(state)) why = 'threefold';
+    else if (E.isInsufficientMaterial(state)) why = 'insufficient-material';
+    return { opening: openingName, result: 'draw', winner: null, loser: null, moves, ply, reason: why, crashed };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Play one game. whiteEng / blackEng are EngineClient instances (with .id).
 // Returns an outcome object the report writer understands.
 // ---------------------------------------------------------------------------
@@ -112,26 +153,10 @@ async function playGame(white, black, gameNo, whiteId, blackId, depth, openingPl
     }
   }
 
-  while (ply < MAX_PLY) {
+  while (ply < PLY_CAP) {
     // Terminal / draw checks BEFORE asking an engine for a move.
-    if (E.isCheckmate(state)) {
-      // side to move is mated → opponent wins
-      const winner = state.whiteToMove ? blackId : whiteId;
-      return { opening: openingName, result: 'win', winner, loser: state.whiteToMove ? whiteId : blackId,
-               moves, ply, reason: 'checkmate', crashed };
-    }
-    if (E.isStalemate(state)) {
-      return { opening: openingName, result: 'draw', winner: null, loser: null, moves, ply,
-               reason: 'stalemate', crashed };
-    }
-    if (E.isDraw(state)) {
-      // fifty-move / threefold / insufficient material
-      let why = 'draw';
-      if (E.isFiftyMoveDraw(state)) why = 'fifty-move';
-      else if (E.isThreefold(state)) why = 'threefold';
-      else if (E.isInsufficientMaterial(state)) why = 'insufficient-material';
-      return { opening: openingName, result: 'draw', winner: null, loser: null, moves, ply, reason: why, crashed };
-    }
+    const term = adjudicate(state, whiteId, blackId, openingName, moves, ply, crashed);
+    if (term) return term;
 
     const moverWhite = state.whiteToMove;
     const eng = moverWhite ? white : black;
@@ -184,9 +209,15 @@ async function playGame(white, black, gameNo, whiteId, blackId, depth, openingPl
     ply++;
   }
 
-  // Hit MAX_PLY without a decisive result → adjudicated draw.
+  // Hit MAX_PLY. The position may still be terminal: the LAST allowed half-move
+  // can deliver mate or stalemate, or complete a threefold. Adjudicate once more
+  // so a decisive game is never mis-recorded as an adjudicated draw.
+  const term = adjudicate(state, whiteId, blackId, openingName, moves, ply, crashed);
+  if (term) return term;
+
+  // Genuinely non-terminal at the ply cap → adjudicated draw.
   return { opening: openingName, result: 'draw', winner: null, loser: null, moves, ply,
-           reason: `max-ply (${MAX_PLY}) reached`, crashed };
+           reason: `max-ply (${PLY_CAP}) reached`, crashed };
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +243,7 @@ function writeReport({ date, env, participants, disabled, pairs, games, scores, 
   lines.push(`- **日期**： ${date}`);
   lines.push(`- **赛制**： 循环赛（round-robin），每对交手 ${gamesPerPair} 局（交换先后手）`);
   lines.push(`- **搜索深度**： ${depth}（每步）`);
-  lines.push(`- **半步上限**： ${MAX_PLY}（超限判和）`);
+  lines.push(`- **半步上限**： ${PLY_CAP}（超限判和；达上限时仍会再判一次终局）`);
   lines.push(`- **对局总数**： ${games.length}`);
   lines.push(`- **总耗时**： ${(elapsedMs / 1000).toFixed(1)} 秒`);
   lines.push('');
@@ -333,7 +364,7 @@ function writeReportHeader({ reportFile, date, env, participants, disabled, game
   lines.push(`- **赛制**： 循环赛（round-robin），每对交手 ${gamesPerPair} 局（交换先后手）`);
   lines.push(`- **搜索深度**： ${depth}（每步）`);
   lines.push(`- **开局库**： ${openingPlies > 0 ? `启用（每局随机预走 ${openingPlies} 步）` : '关闭'}`);
-  lines.push(`- **半步上限**： ${MAX_PLY}（超限判和）`);
+  lines.push(`- **半步上限**： ${PLY_CAP}（超限判和；达上限时仍会再判一次终局）`);
   lines.push(`- **对局总数**： ${totalGames}`);
   lines.push('');
   lines.push(`## 环境`);
@@ -638,7 +669,14 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error('FATAL', e);
-  process.exit(1);
-});
+// Only auto-run when this file IS the CLI entry point. Importing the module
+// (tests / external verification) must NOT kick off a 4-hour tournament.
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main().catch((e) => {
+    console.error('FATAL', e);
+    process.exit(1);
+  });
+}
+
+// Exported for tests and for board-replay style cross-verification.
+export { adjudicate, playGame };

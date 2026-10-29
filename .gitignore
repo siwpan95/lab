@@ -58,3 +58,6 @@ _removed_glue_archive/
 _mingw.nupkg
 cordis-main/
 paper-main/
+
+# 比赛哨兵/锁残留（2026-10-29 补；非交付物，每次跑完自动生成）
+tournament/reports/.tourn_*

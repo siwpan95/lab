@@ -23,7 +23,7 @@
 //     that game and is killed; its remaining games become forfeit losses so the
 //     whole tournament stays bounded and never hangs on a wedged subprocess.
 
-import { readFileSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, appendFileSync, openSync, closeSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -36,6 +36,60 @@ import { pickOpening, OPENING_PLIES_DEFAULT } from './opening_book.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPORTS_DIR = join(__dirname, 'reports');
+
+// ---------------------------------------------------------------------------
+// Single-instance lock (added 2026-10-12).
+//
+// The incremental report writer truncates the date file once (header) and then
+// appends per-pair, so SEQUENTIAL re-runs are already safe. The failure mode
+// that actually bit us (2026-10-11) was CONCURRENCY: two runs writing the same
+// calendar-date file at once interleave their appends and corrupt it (that
+// report ended up with one header, TWO leaderboards and a stray `py` pair from
+// a different run). Sequential truncation cannot prevent that — only "never
+// run two tournaments at once" can.
+//
+// Lock = reports/.run_lock holding the owner PID, created with O_CREAT|O_EXCL
+// (atomic). If a lock already exists we reclaim it ONLY when the recorded PID
+// is no longer alive (stale lock left by a killed run) — we never steal a live
+// run's lock.
+// ---------------------------------------------------------------------------
+const LOCK_FILE = join(REPORTS_DIR, '.run_lock');
+let lockHeld = false;
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return e.code === 'EPERM'; } // exists but owned by another user
+}
+
+function acquireLock() {
+  try { mkdirSync(REPORTS_DIR, { recursive: true }); } catch {}
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const fd = openSync(LOCK_FILE, 'wx'); // O_CREAT|O_EXCL — EEXIST if already held
+      try { writeFileSync(fd, String(process.pid)); } catch {}
+      closeSync(fd);
+      lockHeld = true;
+      return true;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      // Someone holds it — is that someone still alive?
+      let pid = NaN;
+      try { pid = parseInt(readFileSync(LOCK_FILE, 'utf8').trim(), 10); } catch {}
+      if (!Number.isFinite(pid) || !pidAlive(pid)) {
+        try { rmSync(LOCK_FILE, { force: true }); } catch {}
+        continue; // reclaimed a stale lock; retry the exclusive create
+      }
+      return false; // a live run owns the lock
+    }
+  }
+  return false;
+}
+
+function releaseLock() {
+  if (!lockHeld) return;
+  try { rmSync(LOCK_FILE, { force: true }); } catch {}
+  lockHeld = false;
+}
 
 // Ply cap actually used by playGame. Equals MAX_PLY unless overridden via
 // TOURNAMENT_MAX_PLY (mainly so the MAX_PLY adjudication path can be tested
@@ -484,6 +538,15 @@ async function main() {
   const startWall = Date.now();
   log(`[${nowStr()}] tournament start`);
 
+  // Single-instance guard: refuse to start if another run already holds the
+  // lock, so two tournaments can never interleave writes into the same date
+  // report. Released automatically on process exit (incl. crash / kill→stale).
+  if (!acquireLock()) {
+    log(`[${nowStr()}] another tournament run is already in progress (lock held) — aborting to avoid corrupting its report.`);
+    process.exit(3);
+  }
+  process.on('exit', releaseLock);
+
   // --- optional env overrides (handy for a fast smoke test & for tuning) ---
   const depthOverride = process.env.TOURNAMENT_DEPTH
     ? Number(process.env.TOURNAMENT_DEPTH) : TOURNAMENT_DEPTH;
@@ -571,6 +634,11 @@ async function main() {
   //     producing nothing (the first depth-4 run died at 37/90 and wrote nothing).
   mkdirSync(REPORTS_DIR, { recursive: true });
   const reportFile = join(REPORTS_DIR, `${nowStr().split(' ')[0]}.md`);
+  // Explicit rebuild: drop any leftover/partial file for this date before the
+  // header (re)creates it. writeReportHeader already truncates, but this makes
+  // "start clean" unambiguous and also covers a stale partial left by a killed
+  // pre-lock run.
+  try { rmSync(reportFile, { force: true }); } catch {}
   writeReportHeader({
     reportFile, date: nowStr(),
     env: { node: nodeVer, python: pyVer, cwd: process.cwd(), platform: process.platform },
@@ -679,4 +747,4 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
 }
 
 // Exported for tests and for board-replay style cross-verification.
-export { adjudicate, playGame };
+export { adjudicate, playGame, acquireLock, releaseLock };

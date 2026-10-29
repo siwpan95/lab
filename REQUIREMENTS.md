@@ -25,7 +25,7 @@
 | TypeScript + esbuild | `tsc` 仅类型检查，`esbuild` 打包 driver | TS 驱动（`out/driver.cjs`） |
 
 > ⚠️ 本机工具链实际落位（非仓库要求，仅说明：若工具链不在 `PATH` 上需手动定位）：
->   .NET 8 = `D:/dotnet8`、JDK 21 = `D:/jdk21`、Python = `E:/Python314`、MinGW-w64 = `E:/mingw64`、Go = `D:/Go`。
+>   .NET 8 = `D:/dotnet8`、JDK 21 = `D:/jdk21`、Python = `/Python314`、MinGW-w64 = `E:/mingw64`、Go = `D:/Go`。
 >   `tournament/local.env`（不入库）记录 `LAB_DOTNET` / `LAB_JAVA` 覆盖，clone 到新机按需自建。
 
 ## 3. chess-cordis 的 npm 依赖

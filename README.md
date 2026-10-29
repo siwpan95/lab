@@ -5,7 +5,7 @@
 > 本仓在 siwpan 投资组合（D:/projects/repos，共 133 仓）中定级为 **② 保留**，领域 **多语言引擎移植验证**。
 > **角色**：多语言验证展示。
 > **维护策略**：② 旗舰 / 枢纽仓库打磨保留，作为能力展示或收敛点；② 保留类仓库低优先维持、不主动扩张。
-> 投资组合统一分级索引：`D:/projects/repos/PORTFOLIO_TIERING.md`。
+> 投资组合统一分级索引（多机可查）：[组合分级决策索引 · allin 事实源](https://gitee.com/siwpan/allin/blob/master/docs/事实源/组合分级决策索引.md)。
 
 > 10 种编程语言的功能对等国际象棋引擎 + 基于 [Cordis](https://cordis.js.org/) 的统一测试 harness（`chess-cordis`）。
 > 在此之上，`tournament/` 是**跨语言循环赛系统**，围绕"削减三重复和棋、增加对局多样性"做了 Tier 1（开局库）→ 2-A（重复惩罚）→ 2-B（时间控制）→ 2-C（差异化评估）四步改造（详见 §9）。
